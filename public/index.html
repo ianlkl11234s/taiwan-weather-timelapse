@@ -348,26 +348,29 @@
         @media (max-width: 768px) {
             .info-panel {
                 max-width: none;
-                width: auto;
-                padding: 10px 14px;
+                width: 160px;
+                padding: 10px 12px;
                 display: flex;
+                flex-direction: column;
                 align-items: center;
-                gap: 12px;
+                gap: 4px;
             }
             .info-panel h2,
             .info-panel .meta,
             .stats-grid { display: none; }
             .info-panel .datetime-display {
+                order: -1;
                 margin: 0;
-                padding: 8px 12px;
+                padding: 6px 10px;
                 white-space: nowrap;
+                width: 100%;
             }
-            .info-panel .datetime-date { font-size: 14px; }
-            .info-panel .datetime-time { font-size: 12px; }
+            .info-panel .datetime-date { font-size: 13px; }
+            .info-panel .datetime-time { font-size: 11px; }
             /* 手機版: 只顯示平均溫度 */
-            .info-panel::before {
+            .info-panel::after {
                 content: attr(data-avg);
-                font-size: 28px;
+                font-size: 20px;
                 font-weight: bold;
                 color: #333;
             }
@@ -380,27 +383,26 @@
             .control-btn {
                 font-size: 0;
                 position: relative;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
             .control-btn::before {
                 content: '';
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
+                display: block;
             }
             #btn-prev::before {
                 width: 0;
                 height: 0;
                 border: 6px solid transparent;
                 border-right: 10px solid #333;
-                margin-left: -3px;
             }
             #btn-play::before {
                 width: 0;
                 height: 0;
-                border: 8px solid transparent;
-                border-left: 12px solid #333;
-                margin-left: 2px;
+                border: 7px solid transparent;
+                border-left: 11px solid #333;
+                margin-left: 3px;
             }
             #btn-play.active::before {
                 border: none;
@@ -408,13 +410,13 @@
                 height: 12px;
                 background: white;
                 box-shadow: 6px 0 0 white;
+                margin-left: 0;
             }
             #btn-next::before {
                 width: 0;
                 height: 0;
                 border: 6px solid transparent;
                 border-left: 10px solid #333;
-                margin-left: 3px;
             }
         }
     </style>
