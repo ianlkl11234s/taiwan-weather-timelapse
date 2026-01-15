@@ -4,7 +4,7 @@
 
 ## Demo
 
-**線上展示**：[https://ianlkl11234s.github.io/taiwan-weather-timelapse/](https://taiwan-weather-timelapse.zeabur.app/)
+**線上展示**：https://taiwan-weather-timelapse.zeabur.app/
 
 ## 功能特色
 
