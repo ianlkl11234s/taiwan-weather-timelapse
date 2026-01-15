@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taiwan Temperature Timelapse</title>
+    <meta name="description" content="Interactive visualization of Taiwan's temperature changes over time">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+
+        #map { height: calc(100vh - 80px); width: 100%; }
+
+        /* Time Controller */
+        .time-controller {
+            height: 80px;
+            background: linear-gradient(to bottom, #f8f9fa, #e9ecef);
+            border-top: 1px solid #dee2e6;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 15px;
+        }
+
+        .control-buttons {
+            display: flex;
+            gap: 5px;
+        }
+
+        .control-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            font-size: 16px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            transition: all 0.2s;
+        }
+
+        .control-btn:hover { background: #e9ecef; }
+        .control-btn.active { background: #0d6efd; color: white; }
+        .control-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .speed-buttons {
+            display: flex;
+            gap: 3px;
+        }
+
+        .speed-btn {
+            padding: 6px 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .speed-btn:hover { background: #e9ecef; }
+        .speed-btn.active { background: #0d6efd; color: white; border-color: #0d6efd; }
+
+        .timeline-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .timeline-slider {
+            width: 100%;
+            height: 8px;
+            -webkit-appearance: none;
+            background: #dee2e6;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        .timeline-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #0d6efd;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        .timeline-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #6c757d;
+        }
+
+        .current-time {
+            font-size: 18px;
+            font-weight: 600;
+            min-width: 180px;
+            text-align: center;
+        }
+
+        .frame-counter {
+            font-size: 12px;
+            color: #6c757d;
+            min-width: 80px;
+        }
+
+        /* Info Panel */
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 280px;
+            font-size: 13px;
+        }
+
+        .info-panel h2 { font-size: 16px; margin-bottom: 10px; color: #333; }
+        .info-panel .meta { color: #666; margin-bottom: 8px; line-height: 1.5; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .stat-item {
+            background: #f5f5f5;
+            padding: 8px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #666;
+        }
+
+        /* Datetime Display */
+        .datetime-display {
+            margin-top: 12px;
+            padding: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            text-align: center;
+            color: white;
+        }
+
+        .datetime-display.night {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+        }
+
+        .datetime-date {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .datetime-time {
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .day-night-icon {
+            font-size: 20px;
+        }
+
+        /* Legend */
+        .legend {
+            position: absolute;
+            bottom: 100px;
+            left: 10px;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+
+        .legend h4 { margin-bottom: 8px; font-size: 13px; }
+        .legend-item { display: flex; align-items: center; margin: 4px 0; font-size: 12px; }
+        .legend-color {
+            width: 20px;
+            height: 14px;
+            margin-right: 8px;
+            border-radius: 2px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+
+        /* Temperature Chart */
+        .temp-chart {
+            position: absolute;
+            bottom: 100px;
+            right: 10px;
+            background: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            width: 320px;
+        }
+
+        .temp-chart h4 {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 80px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .chart-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .chart-indicator {
+            position: absolute;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            background: #dc3545;
+            pointer-events: none;
+        }
+
+        .chart-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .chart-temp-range {
+            position: absolute;
+            right: 5px;
+            top: 5px;
+            font-size: 10px;
+            color: #666;
+            background: rgba(255,255,255,0.8);
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+
+        /* Hover Info */
+        .hover-info {
+            position: absolute;
+            bottom: 200px;
+            right: 10px;
+            background: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            min-width: 150px;
+            display: none;
+        }
+
+        .hover-info.active { display: block; }
+        .hover-info .temp { font-size: 28px; font-weight: bold; color: #333; }
+        .hover-info .coords { color: #666; font-size: 11px; margin-top: 4px; }
+
+        /* Loading */
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.95);
+            padding: 30px 50px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            z-index: 2000;
+            text-align: center;
+        }
+
+        .loading h3 { margin-bottom: 15px; }
+        .loading-bar {
+            width: 200px;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .loading-progress {
+            height: 100%;
+            background: #0d6efd;
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .info-panel { max-width: 200px; padding: 10px; }
+            .info-panel h2 { font-size: 14px; }
+            .info-panel .meta { font-size: 11px; }
+            .stat-value { font-size: 16px; }
+            .temp-chart { width: 250px; }
+            .legend { font-size: 10px; }
+            .current-time { font-size: 14px; min-width: 120px; }
+            .speed-buttons { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="time-controller">
+        <div class="control-buttons">
+            <button class="control-btn" id="btn-prev" title="Previous">&#x23EE;</button>
+            <button class="control-btn" id="btn-play" title="Play/Pause">&#x25B6;</button>
+            <button class="control-btn" id="btn-next" title="Next">&#x23ED;</button>
+        </div>
+
+        <div class="speed-buttons">
+            <button class="speed-btn active" data-speed="1">1x</button>
+            <button class="speed-btn" data-speed="2">2x</button>
+            <button class="speed-btn" data-speed="4">4x</button>
+            <button class="speed-btn" data-speed="8">8x</button>
+        </div>
+
+        <div class="timeline-container">
+            <input type="range" class="timeline-slider" id="timeline" min="0" max="100" value="0">
+            <div class="timeline-labels">
+                <span id="start-time">--</span>
+                <span id="end-time">--</span>
+            </div>
+        </div>
+
+        <div class="current-time" id="current-time">Loading...</div>
+        <div class="frame-counter" id="frame-counter">-- / --</div>
+    </div>
+
+    <div class="info-panel">
+        <h2>Taiwan Temperature</h2>
+        <div class="meta">
+            <strong>Source:</strong> Central Weather Administration<br>
+            <strong>Dataset:</strong> O-A0038-003<br>
+            <strong>Resolution:</strong> 0.03&#176; (~3.3 km)
+        </div>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-value" id="stat-min">--</div>
+                <div class="stat-label">Min</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-max">--</div>
+                <div class="stat-label">Max</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-avg">--</div>
+                <div class="stat-label">Avg</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-points">--</div>
+                <div class="stat-label">Points</div>
+            </div>
+        </div>
+        <div class="datetime-display" id="datetime-display">
+            <div class="datetime-date" id="display-date">--</div>
+            <div class="datetime-time">
+                <span class="day-night-icon" id="day-night-icon">--</span>
+                <span id="display-time">--:--</span>
+                <span id="day-night-text">--</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="temp-chart">
+        <h4>Average Temperature Trend</h4>
+        <div class="chart-container">
+            <canvas class="chart-canvas" id="chart-canvas"></canvas>
+            <div class="chart-indicator" id="chart-indicator"></div>
+            <div class="chart-temp-range" id="chart-temp-range">--</div>
+        </div>
+        <div class="chart-labels">
+            <span id="chart-start">--</span>
+            <span id="chart-end">--</span>
+        </div>
+    </div>
+
+    <div class="legend">
+        <h4>Temperature (&#176;C)</h4>
+        <div class="legend-item"><div class="legend-color" style="background:#313695"></div> &lt; 0&#176;C</div>
+        <div class="legend-item"><div class="legend-color" style="background:#4575b4"></div> 0 ~ 5&#176;C</div>
+        <div class="legend-item"><div class="legend-color" style="background:#74add1"></div> 5 ~ 10&#176;C</div>
+        <div class="legend-item"><div class="legend-color" style="background:#abd9e9"></div> 10 ~ 15&#176;C</div>
+        <div class="legend-item"><div class="legend-color" style="background:#fee090"></div> 15 ~ 18&#176;C</div>
+        <div class="legend-item"><div class="legend-color" style="background:#fdae61"></div> 18 ~ 20&#176;C</div>
+        <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div> 20 ~ 25&#176;C</div>
+        <div class="legend-item"><div class="legend-color" style="background:#d73027"></div> &gt; 25&#176;C</div>
+    </div>
+
+    <div class="hover-info" id="hover-info">
+        <div class="temp" id="hover-temp">--&#176;C</div>
+        <div class="coords" id="hover-coords">--</div>
+    </div>
+
+    <div class="loading" id="loading">
+        <h3>Loading temperature data...</h3>
+        <div class="loading-bar">
+            <div class="loading-progress" id="loading-progress"></div>
+        </div>
+        <div style="margin-top: 10px; color: #666;" id="loading-text">Preparing...</div>
+    </div>
+
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([23.7, 121.0], 7);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+            maxZoom: 19
+        }).addTo(map);
+
+        // Temperature color function
+        function getColor(temp) {
+            if (temp < 0) return '#313695';
+            if (temp < 5) return '#4575b4';
+            if (temp < 10) return '#74add1';
+            if (temp < 15) return '#abd9e9';
+            if (temp < 18) return '#fee090';
+            if (temp < 20) return '#fdae61';
+            if (temp < 25) return '#f46d43';
+            return '#d73027';
+        }
+
+        // Time formatting
+        function formatTime(isoString) {
+            const d = new Date(isoString);
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const hour = String(d.getHours()).padStart(2, '0');
+            const minute = String(d.getMinutes()).padStart(2, '0');
+            return `${month}/${day} ${hour}:${minute}`;
+        }
+
+        // Check if daytime (09:00 - 18:00)
+        function isDaytime(isoString) {
+            const d = new Date(isoString);
+            const hour = d.getHours();
+            return hour >= 9 && hour < 18;
+        }
+
+        // Format date display
+        function formatDateDisplay(isoString) {
+            const d = new Date(isoString);
+            const year = d.getFullYear();
+            const month = d.getMonth() + 1;
+            const day = d.getDate();
+            const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const weekday = weekdays[d.getDay()];
+            return `${year}/${month}/${day} (${weekday})`;
+        }
+
+        // Format time display
+        function formatTimeDisplay(isoString) {
+            const d = new Date(isoString);
+            const hour = String(d.getHours()).padStart(2, '0');
+            const minute = String(d.getMinutes()).padStart(2, '0');
+            return `${hour}:${minute}`;
+        }
+
+        // Timelapse Player Class
+        class TemperatureTimelapse {
+            constructor() {
+                this.data = null;
+                this.frames = [];
+                this.currentIndex = 0;
+                this.isPlaying = false;
+                this.speed = 1;
+                this.intervalMs = 1000;
+                this.intervalId = null;
+                this.gridLayer = null;
+                this.rectangles = [];
+                this.chartCanvas = null;
+                this.chartCtx = null;
+                this.avgTemps = [];
+                this.tempMin = 0;
+                this.tempMax = 30;
+
+                this.initControls();
+            }
+
+            initControls() {
+                document.getElementById('btn-play').addEventListener('click', () => {
+                    if (this.isPlaying) {
+                        this.pause();
+                    } else {
+                        this.play();
+                    }
+                });
+
+                document.getElementById('btn-prev').addEventListener('click', () => {
+                    this.pause();
+                    this.seekTo(Math.max(0, this.currentIndex - 1));
+                });
+
+                document.getElementById('btn-next').addEventListener('click', () => {
+                    this.pause();
+                    this.seekTo(Math.min(this.frames.length - 1, this.currentIndex + 1));
+                });
+
+                document.querySelectorAll('.speed-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+                        e.target.classList.add('active');
+                        this.setSpeed(parseInt(e.target.dataset.speed));
+                    });
+                });
+
+                document.getElementById('timeline').addEventListener('input', (e) => {
+                    this.pause();
+                    this.seekTo(parseInt(e.target.value));
+                });
+            }
+
+            async loadData() {
+                const loadingEl = document.getElementById('loading');
+                const progressEl = document.getElementById('loading-progress');
+                const textEl = document.getElementById('loading-text');
+
+                try {
+                    textEl.textContent = 'Downloading data...';
+                    progressEl.style.width = '20%';
+
+                    const response = await fetch('temperature_timelapse_data.json');
+                    if (!response.ok) throw new Error('Cannot load data');
+
+                    progressEl.style.width = '60%';
+                    textEl.textContent = 'Parsing data...';
+
+                    this.data = await response.json();
+                    this.frames = this.data.frames;
+
+                    progressEl.style.width = '80%';
+                    textEl.textContent = 'Initializing map...';
+
+                    if (this.frames.length > 0) {
+                        document.getElementById('start-time').textContent = formatTime(this.frames[0].time);
+                        document.getElementById('end-time').textContent = formatTime(this.frames[this.frames.length - 1].time);
+                        document.getElementById('timeline').max = this.frames.length - 1;
+                    }
+
+                    this.initChart();
+                    this.createGrid();
+                    this.renderFrame(0);
+
+                    progressEl.style.width = '100%';
+
+                    const geo = this.data.metadata.geo_info;
+                    map.fitBounds([
+                        [geo.bottom_left_lat, geo.bottom_left_lon],
+                        [geo.top_right_lat, geo.top_right_lon]
+                    ], { padding: [20, 20] });
+
+                    setTimeout(() => {
+                        loadingEl.style.display = 'none';
+                    }, 300);
+
+                } catch (error) {
+                    console.error('Load failed:', error);
+                    textEl.textContent = 'Load failed: ' + error.message;
+                    progressEl.style.background = '#dc3545';
+                }
+            }
+
+            createGrid() {
+                const geo = this.data.metadata.geo_info;
+                const resolution = geo.resolution_deg || 0.03;
+                const firstFrame = this.frames[0];
+
+                if (!firstFrame || !firstFrame.data) return;
+
+                const hoverInfo = document.getElementById('hover-info');
+                const hoverTemp = document.getElementById('hover-temp');
+                const hoverCoords = document.getElementById('hover-coords');
+
+                for (let row = 0; row < firstFrame.data.length; row++) {
+                    for (let col = 0; col < firstFrame.data[row].length; col++) {
+                        const temp = firstFrame.data[row][col];
+                        if (temp === null || temp < -900) continue;
+
+                        const lat = geo.bottom_left_lat + row * resolution;
+                        const lon = geo.bottom_left_lon + col * resolution;
+
+                        const bounds = [
+                            [lat - resolution/2, lon - resolution/2],
+                            [lat + resolution/2, lon + resolution/2]
+                        ];
+
+                        const rect = L.rectangle(bounds, {
+                            color: getColor(temp),
+                            fillColor: getColor(temp),
+                            fillOpacity: 0.7,
+                            weight: 0
+                        }).addTo(map);
+
+                        rect._gridRow = row;
+                        rect._gridCol = col;
+
+                        rect.on('mouseover', function(e) {
+                            this.setStyle({ fillOpacity: 1, weight: 1, color: '#333' });
+                            const currentTemp = this._currentTemp;
+                            if (currentTemp !== null && currentTemp > -900) {
+                                hoverInfo.classList.add('active');
+                                hoverTemp.textContent = currentTemp.toFixed(1) + '°C';
+                                hoverCoords.textContent = lat.toFixed(2) + '°N, ' + lon.toFixed(2) + '°E';
+                            }
+                        });
+
+                        rect.on('mouseout', function(e) {
+                            this.setStyle({ fillOpacity: 0.7, weight: 0 });
+                            hoverInfo.classList.remove('active');
+                        });
+
+                        this.rectangles.push(rect);
+                    }
+                }
+            }
+
+            initChart() {
+                this.avgTemps = this.frames.map(f => f.stats?.avg || null).filter(t => t !== null);
+
+                if (this.avgTemps.length === 0) return;
+
+                this.tempMin = Math.floor(Math.min(...this.avgTemps) - 2);
+                this.tempMax = Math.ceil(Math.max(...this.avgTemps) + 2);
+
+                document.getElementById('chart-start').textContent = formatTime(this.frames[0].time);
+                document.getElementById('chart-end').textContent = formatTime(this.frames[this.frames.length - 1].time);
+                document.getElementById('chart-temp-range').textContent = `${this.tempMin}° ~ ${this.tempMax}°`;
+
+                this.chartCanvas = document.getElementById('chart-canvas');
+                this.chartCtx = this.chartCanvas.getContext('2d');
+
+                const rect = this.chartCanvas.getBoundingClientRect();
+                this.chartCanvas.width = rect.width * 2;
+                this.chartCanvas.height = rect.height * 2;
+                this.chartCtx.scale(2, 2);
+
+                this.drawChart();
+            }
+
+            drawChart() {
+                if (!this.chartCtx) return;
+
+                const ctx = this.chartCtx;
+                const canvas = this.chartCanvas;
+                const width = canvas.width / 2;
+                const height = canvas.height / 2;
+                const padding = 5;
+
+                ctx.clearRect(0, 0, width, height);
+
+                const framesCount = this.frames.length;
+                const barWidth = (width - padding * 2) / framesCount;
+
+                for (let i = 0; i < framesCount; i++) {
+                    const frame = this.frames[i];
+                    const isDay = isDaytime(frame.time);
+                    ctx.fillStyle = isDay ? 'rgba(255, 236, 179, 0.4)' : 'rgba(63, 81, 181, 0.15)';
+                    ctx.fillRect(padding + i * barWidth, 0, barWidth, height);
+                }
+
+                ctx.beginPath();
+                ctx.strokeStyle = '#e74c3c';
+                ctx.lineWidth = 1.5;
+
+                let started = false;
+                for (let i = 0; i < this.frames.length; i++) {
+                    const temp = this.frames[i].stats?.avg;
+                    if (temp === null || temp === undefined) continue;
+
+                    const x = padding + (i / (this.frames.length - 1)) * (width - padding * 2);
+                    const y = height - padding - ((temp - this.tempMin) / (this.tempMax - this.tempMin)) * (height - padding * 2);
+
+                    if (!started) {
+                        ctx.moveTo(x, y);
+                        started = true;
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                ctx.stroke();
+
+                ctx.fillStyle = '#e74c3c';
+                for (let i = 0; i < this.frames.length; i++) {
+                    const temp = this.frames[i].stats?.avg;
+                    if (temp === null || temp === undefined) continue;
+
+                    const x = padding + (i / (this.frames.length - 1)) * (width - padding * 2);
+                    const y = height - padding - ((temp - this.tempMin) / (this.tempMax - this.tempMin)) * (height - padding * 2);
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            updateChartIndicator(index) {
+                const indicator = document.getElementById('chart-indicator');
+                const container = indicator.parentElement;
+                const width = container.offsetWidth;
+                const padding = 5;
+
+                const x = padding + (index / (this.frames.length - 1)) * (width - padding * 2);
+                indicator.style.left = x + 'px';
+            }
+
+            renderFrame(index) {
+                if (index < 0 || index >= this.frames.length) return;
+
+                this.currentIndex = index;
+                const frame = this.frames[index];
+
+                for (const rect of this.rectangles) {
+                    const row = rect._gridRow;
+                    const col = rect._gridCol;
+
+                    if (frame.data[row] && frame.data[row][col] !== undefined) {
+                        const temp = frame.data[row][col];
+                        rect._currentTemp = temp;
+
+                        if (temp !== null && temp > -900) {
+                            const color = getColor(temp);
+                            rect.setStyle({ color: color, fillColor: color });
+                            rect.setStyle({ opacity: 1, fillOpacity: 0.7 });
+                        } else {
+                            rect.setStyle({ opacity: 0, fillOpacity: 0 });
+                        }
+                    }
+                }
+
+                document.getElementById('current-time').textContent = formatTime(frame.time);
+                document.getElementById('frame-counter').textContent = `${index + 1} / ${this.frames.length}`;
+                document.getElementById('timeline').value = index;
+
+                if (frame.stats) {
+                    document.getElementById('stat-min').textContent =
+                        frame.stats.min !== null ? frame.stats.min.toFixed(1) + '°' : '--';
+                    document.getElementById('stat-max').textContent =
+                        frame.stats.max !== null ? frame.stats.max.toFixed(1) + '°' : '--';
+                    document.getElementById('stat-avg').textContent =
+                        frame.stats.avg !== null ? frame.stats.avg.toFixed(1) + '°' : '--';
+                    document.getElementById('stat-points').textContent =
+                        frame.stats.valid_points ? frame.stats.valid_points.toLocaleString() : '--';
+                }
+
+                const datetimeDisplay = document.getElementById('datetime-display');
+                const isDay = isDaytime(frame.time);
+                datetimeDisplay.className = 'datetime-display' + (isDay ? '' : ' night');
+                document.getElementById('display-date').textContent = formatDateDisplay(frame.time);
+                document.getElementById('display-time').textContent = formatTimeDisplay(frame.time);
+                document.getElementById('day-night-icon').textContent = isDay ? '☀️' : '🌙';
+                document.getElementById('day-night-text').textContent = isDay ? 'Day' : 'Night';
+
+                this.updateChartIndicator(index);
+            }
+
+            play() {
+                if (this.frames.length === 0) return;
+
+                this.isPlaying = true;
+                document.getElementById('btn-play').innerHTML = '&#x23F8;';
+                document.getElementById('btn-play').classList.add('active');
+
+                this.intervalId = setInterval(() => {
+                    let nextIndex = this.currentIndex + 1;
+                    if (nextIndex >= this.frames.length) {
+                        nextIndex = 0;
+                    }
+                    this.renderFrame(nextIndex);
+                }, this.intervalMs / this.speed);
+            }
+
+            pause() {
+                this.isPlaying = false;
+                document.getElementById('btn-play').innerHTML = '&#x25B6;';
+                document.getElementById('btn-play').classList.remove('active');
+
+                if (this.intervalId) {
+                    clearInterval(this.intervalId);
+                    this.intervalId = null;
+                }
+            }
+
+            setSpeed(speed) {
+                this.speed = speed;
+                if (this.isPlaying) {
+                    this.pause();
+                    this.play();
+                }
+            }
+
+            seekTo(index) {
+                this.renderFrame(index);
+            }
+        }
+
+        // Initialize
+        const timelapse = new TemperatureTimelapse();
+        timelapse.loadData();
+    </script>
+</body>
+</html>

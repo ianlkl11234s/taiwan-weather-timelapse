@@ -1,0 +1,87 @@
+name: Update Temperature Data
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC (14:00 Taiwan Time)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Number of days to include (default: all available)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install boto3 python-dotenv
+
+      - name: Update temperature data
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_REGION: ${{ secrets.S3_REGION }}
+        run: |
+          DAYS_ARG=""
+          if [ -n "${{ github.event.inputs.days }}" ]; then
+            DAYS_ARG="--days ${{ github.event.inputs.days }}"
+          fi
+          python scripts/update_data.py $DAYS_ARG
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet public/temperature_timelapse_data.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add public/temperature_timelapse_data.json
+          git commit -m "chore: update temperature data $(date +'%Y-%m-%d')"
+          git push
+
+  deploy:
+    needs: update-data
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main  # Get the latest changes
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'public'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
