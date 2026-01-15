@@ -135,7 +135,7 @@ weather_change/
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Credits
 
