@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>台灣溫度變化</title>
     <meta name="description" content="Interactive visualization of Taiwan's temperature changes over time">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%23313695'/><stop offset='35%25' stop-color='%2374add1'/><stop offset='65%25' stop-color='%23fee090'/><stop offset='100%25' stop-color='%23d73027'/></linearGradient></defs><circle cx='16' cy='16' r='14' fill='url(%23g)'/></svg>">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -375,6 +376,46 @@
             .hover-info { display: none !important; }
             .current-time,
             .speed-buttons { display: none; }
+            /* 手機版播放按鈕：用 CSS 色塊 */
+            .control-btn {
+                font-size: 0;
+                position: relative;
+            }
+            .control-btn::before {
+                content: '';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+            #btn-prev::before {
+                width: 0;
+                height: 0;
+                border: 6px solid transparent;
+                border-right: 10px solid #333;
+                margin-left: -3px;
+            }
+            #btn-play::before {
+                width: 0;
+                height: 0;
+                border: 8px solid transparent;
+                border-left: 12px solid #333;
+                margin-left: 2px;
+            }
+            #btn-play.active::before {
+                border: none;
+                width: 4px;
+                height: 12px;
+                background: white;
+                box-shadow: 6px 0 0 white;
+            }
+            #btn-next::before {
+                width: 0;
+                height: 0;
+                border: 6px solid transparent;
+                border-left: 10px solid #333;
+                margin-left: 3px;
+            }
         }
     </style>
 </head>
@@ -620,7 +661,19 @@
                     textEl.textContent = 'Parsing data...';
 
                     this.data = await response.json();
-                    this.frames = this.data.frames;
+
+                    // 過濾資料：從 12/27 開始，最多保留 30 天
+                    const startDate = new Date('2025-12-27T00:00:00');
+                    const now = new Date();
+                    const thirtyDaysAgo = new Date(now);
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                    thirtyDaysAgo.setHours(0, 0, 0, 0);
+                    const cutoffDate = startDate > thirtyDaysAgo ? startDate : thirtyDaysAgo;
+
+                    this.frames = this.data.frames.filter(frame => {
+                        const frameDate = new Date(frame.time);
+                        return frameDate >= cutoffDate;
+                    });
 
                     progressEl.style.width = '80%';
                     textEl.textContent = 'Initializing map...';
