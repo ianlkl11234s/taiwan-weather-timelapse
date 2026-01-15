@@ -346,26 +346,37 @@ def main():
         print("  Run: pip install boto3")
         sys.exit(1)
 
-    # Determine .env path
-    env_path = args.env_file
-    if not env_path:
-        # Try multiple locations
-        possible_paths = [
-            PROJECT_ROOT / '.env',
-            Path.home() / '.env.weather_change',
-        ]
-        for p in possible_paths:
-            if p.exists():
-                env_path = p
-                break
+    # Check if environment variables are already set (e.g., in CI)
+    s3_config = {
+        'S3_BUCKET': os.getenv('S3_BUCKET'),
+        'S3_ACCESS_KEY': os.getenv('S3_ACCESS_KEY'),
+        'S3_SECRET_KEY': os.getenv('S3_SECRET_KEY'),
+        'S3_REGION': os.getenv('S3_REGION', 'ap-northeast-1'),
+        'S3_ENDPOINT': os.getenv('S3_ENDPOINT'),
+    }
 
-    if not env_path or not env_path.exists():
-        print("ERROR: No .env file found")
-        print("  Create .env file with S3 credentials or use --env-file")
-        sys.exit(1)
+    # If not set, try loading from .env file
+    if not s3_config.get('S3_BUCKET'):
+        env_path = args.env_file
+        if not env_path:
+            possible_paths = [
+                PROJECT_ROOT / '.env',
+                Path.home() / '.env.weather_change',
+            ]
+            for p in possible_paths:
+                if p.exists():
+                    env_path = p
+                    break
 
-    print(f"Loading env: {env_path}")
-    s3_config = load_env_file(env_path)
+        if not env_path or not env_path.exists():
+            print("ERROR: No S3 credentials found")
+            print("  Set environment variables or create .env file")
+            sys.exit(1)
+
+        print(f"Loading env: {env_path}")
+        s3_config = load_env_file(env_path)
+    else:
+        print("Using environment variables")
 
     if not s3_config.get('S3_BUCKET'):
         print("ERROR: S3_BUCKET is not configured")
