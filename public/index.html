@@ -104,9 +104,7 @@
         }
 
         .frame-counter {
-            font-size: 12px;
-            color: #6c757d;
-            min-width: 80px;
+            display: none;
         }
 
         /* Info Panel */
@@ -347,13 +345,35 @@
 
         /* Responsive */
         @media (max-width: 768px) {
-            .info-panel { max-width: 200px; padding: 10px; }
-            .info-panel h2 { font-size: 14px; }
-            .info-panel .meta { font-size: 11px; }
-            .stat-value { font-size: 16px; }
-            .temp-chart { width: 250px; }
-            .legend { font-size: 10px; }
-            .current-time { font-size: 14px; min-width: 120px; }
+            .info-panel {
+                max-width: none;
+                width: auto;
+                padding: 10px 14px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            .info-panel h2,
+            .info-panel .meta,
+            .stats-grid { display: none; }
+            .info-panel .datetime-display {
+                margin: 0;
+                padding: 8px 12px;
+                white-space: nowrap;
+            }
+            .info-panel .datetime-date { font-size: 14px; }
+            .info-panel .datetime-time { font-size: 12px; }
+            /* 手機版: 只顯示平均溫度 */
+            .info-panel::before {
+                content: attr(data-avg);
+                font-size: 28px;
+                font-weight: bold;
+                color: #333;
+            }
+            .temp-chart,
+            .legend,
+            .hover-info { display: none !important; }
+            .current-time,
             .speed-buttons { display: none; }
         }
     </style>
@@ -618,10 +638,16 @@
                     progressEl.style.width = '100%';
 
                     const geo = this.data.metadata.geo_info;
-                    map.fitBounds([
-                        [geo.bottom_left_lat, geo.bottom_left_lon],
-                        [geo.top_right_lat, geo.top_right_lon]
-                    ], { padding: [20, 20] });
+                    const isMobile = window.innerWidth <= 768;
+                    if (isMobile) {
+                        // 手機版：以台灣本島為中心
+                        map.setView([23.5, 120.9], 7);
+                    } else {
+                        map.fitBounds([
+                            [geo.bottom_left_lat, geo.bottom_left_lon],
+                            [geo.top_right_lat, geo.top_right_lon]
+                        ], { padding: [20, 20] });
+                    }
 
                     setTimeout(() => {
                         loadingEl.style.display = 'none';
@@ -681,6 +707,17 @@
                         rect.on('mouseout', function(e) {
                             this.setStyle({ fillOpacity: 0.7, weight: 0 });
                             hoverInfo.classList.remove('active');
+                        });
+
+                        // 手機版點擊顯示溫度
+                        rect.on('click', function(e) {
+                            L.DomEvent.stopPropagation(e);
+                            const currentTemp = this._currentTemp;
+                            if (currentTemp !== null && currentTemp > -900) {
+                                hoverInfo.classList.add('active');
+                                hoverTemp.textContent = currentTemp.toFixed(1) + '°C';
+                                hoverCoords.textContent = lat.toFixed(2) + '°N, ' + lon.toFixed(2) + '°E';
+                            }
                         });
 
                         this.rectangles.push(rect);
@@ -819,6 +856,9 @@
                 const datetimeDisplay = document.getElementById('datetime-display');
                 const isDay = isDaytime(frame.time);
                 datetimeDisplay.className = 'datetime-display' + (isDay ? '' : ' night');
+                // 更新手機版平均溫度顯示
+                document.querySelector('.info-panel').dataset.avg =
+                    frame.stats?.avg !== null ? frame.stats.avg.toFixed(1) + '°' : '--';
                 document.getElementById('display-date').textContent = formatDateDisplay(frame.time);
                 document.getElementById('display-time').textContent = formatTimeDisplay(frame.time);
                 document.getElementById('day-night-icon').textContent = isDay ? '☀️' : '🌙';
@@ -866,6 +906,11 @@
                 this.renderFrame(index);
             }
         }
+
+        // 點地圖空白處關閉溫度顯示
+        map.on('click', function() {
+            document.getElementById('hover-info').classList.remove('active');
+        });
 
         // Initialize
         const timelapse = new TemperatureTimelapse();
