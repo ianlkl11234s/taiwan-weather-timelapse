@@ -290,11 +290,14 @@ def interpolate_humidity(stations: List[Dict], geo_info: Dict) -> Tuple[List[Lis
         # Set ocean areas to NaN
         grid_humidity[~land_mask] = np.nan
 
-    # Calculate statistics (excluding NaN)
+    # Calculate statistics (excluding NaN and clipped edge values)
     valid_grid = grid_humidity[~np.isnan(grid_humidity)]
+    # Exclude values that were clipped to exactly 0 or 100 (edge artifacts)
+    inner_values = valid_grid[(valid_grid > 0.1) & (valid_grid < 99.9)]
+
     stats = {
-        'min': round(float(np.min(valid_grid)), 1) if len(valid_grid) > 0 else None,
-        'max': round(float(np.max(valid_grid)), 1) if len(valid_grid) > 0 else None,
+        'min': round(float(np.min(inner_values)), 1) if len(inner_values) > 0 else None,
+        'max': round(float(np.max(inner_values)), 1) if len(inner_values) > 0 else None,
         'avg': round(float(np.mean(valid_grid)), 1) if len(valid_grid) > 0 else None,
         'valid_points': int(np.sum(~np.isnan(grid_humidity))),
         'station_count': len(valid_stations)

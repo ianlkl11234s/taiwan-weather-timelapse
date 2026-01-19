@@ -141,7 +141,7 @@
             background: linear-gradient(135deg, #74add1 0%, #abd9e9 35%, #fee090 65%, #f46d43 100%);
         }
         .title-icon.humidity {
-            background: linear-gradient(135deg, #8B4513 0%, #9ACD32 50%, #0000CD 100%);
+            background: linear-gradient(135deg, #b48f60 0%, #b6d69f 50%, #5e3a86 100%);
         }
         .info-panel .meta { color: #666; margin-bottom: 8px; line-height: 1.5; }
 
@@ -503,8 +503,8 @@
     <div class="info-panel" id="info-panel">
         <h2><span class="title-icon temperature" id="title-icon"></span><span id="panel-title">台灣溫度變化</span></h2>
         <select class="data-type-selector" id="data-type-selector">
-            <option value="temperature">🌡️ 溫度 Temperature</option>
-            <option value="humidity">💧 濕度 Humidity</option>
+            <option value="temperature">溫度 Temperature</option>
+            <option value="humidity">濕度 Humidity</option>
         </select>
         <div class="meta" id="data-meta">
             <strong>Source:</strong> Central Weather Administration<br>
@@ -566,13 +566,13 @@
         </div>
         <div id="legend-humidity" style="display:none;">
             <h4>Humidity (%)</h4>
-            <div class="legend-item"><div class="legend-color" style="background:#8B4513"></div> &lt; 30%</div>
-            <div class="legend-item"><div class="legend-color" style="background:#DAA520"></div> 30 ~ 50%</div>
-            <div class="legend-item"><div class="legend-color" style="background:#9ACD32"></div> 50 ~ 60%</div>
-            <div class="legend-item"><div class="legend-color" style="background:#32CD32"></div> 60 ~ 70%</div>
-            <div class="legend-item"><div class="legend-color" style="background:#4169E1"></div> 70 ~ 80%</div>
-            <div class="legend-item"><div class="legend-color" style="background:#0000CD"></div> 80 ~ 90%</div>
-            <div class="legend-item"><div class="legend-color" style="background:#00008B"></div> &gt; 90%</div>
+            <div class="legend-item"><div class="legend-color" style="background:#b48f60"></div> &lt; 40% 極乾</div>
+            <div class="legend-item"><div class="legend-color" style="background:#d6bb7e"></div> 40 ~ 50% 乾燥</div>
+            <div class="legend-item"><div class="legend-color" style="background:#e6dfaa"></div> 50 ~ 60% 稍乾</div>
+            <div class="legend-item"><div class="legend-color" style="background:#b6d69f"></div> 60 ~ 70% 舒適</div>
+            <div class="legend-item"><div class="legend-color" style="background:#64b6e1"></div> 70 ~ 80% 濕潤</div>
+            <div class="legend-item"><div class="legend-color" style="background:#5a6fc2"></div> 80 ~ 90% 潮濕</div>
+            <div class="legend-item"><div class="legend-color" style="background:#5e3a86"></div> &gt; 90% 極濕</div>
         </div>
     </div>
 
@@ -613,15 +613,15 @@
             return '#d73027';
         }
 
-        // Humidity color function
+        // Humidity color function (Windy style)
         function getHumidityColor(humidity) {
-            if (humidity < 30) return '#8B4513';
-            if (humidity < 50) return '#DAA520';
-            if (humidity < 60) return '#9ACD32';
-            if (humidity < 70) return '#32CD32';
-            if (humidity < 80) return '#4169E1';
-            if (humidity < 90) return '#0000CD';
-            return '#00008B';
+            if (humidity < 40) return '#b48f60';  // 極乾 (棕色)
+            if (humidity < 50) return '#d6bb7e';  // 乾燥 (淺棕)
+            if (humidity < 60) return '#e6dfaa';  // 稍乾 (黃色)
+            if (humidity < 70) return '#b6d69f';  // 舒適 (淺綠)
+            if (humidity < 80) return '#64b6e1';  // 濕潤 (淺藍)
+            if (humidity < 90) return '#5a6fc2';  // 潮濕 (深藍)
+            return '#5e3a86';                     // 極濕 (紫色)
         }
 
         // Get color based on current data type
