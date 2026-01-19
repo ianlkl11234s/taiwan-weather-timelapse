@@ -1,4 +1,4 @@
-name: Update Temperature Data
+name: Update Weather Data
 
 on:
   schedule:
@@ -31,7 +31,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install boto3 python-dotenv
+          pip install boto3 python-dotenv scipy numpy
 
       - name: Update temperature data
         env:
@@ -46,10 +46,23 @@ jobs:
           fi
           python scripts/update_data.py $DAYS_ARG
 
+      - name: Update humidity data
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_REGION: ${{ secrets.S3_REGION }}
+        run: |
+          DAYS_ARG=""
+          if [ -n "${{ github.event.inputs.days }}" ]; then
+            DAYS_ARG="--days ${{ github.event.inputs.days }}"
+          fi
+          python scripts/update_humidity.py $DAYS_ARG
+
       - name: Check for changes
         id: check_changes
         run: |
-          if git diff --quiet public/temperature_timelapse_data.json; then
+          if git diff --quiet public/temperature_timelapse_data.json public/humidity_timelapse_data.json 2>/dev/null; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -60,8 +73,8 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add public/temperature_timelapse_data.json
-          git commit -m "chore: update temperature data $(date +'%Y-%m-%d')"
+          git add public/temperature_timelapse_data.json public/humidity_timelapse_data.json
+          git commit -m "chore: update weather data $(date +'%Y-%m-%d')"
           git push
 
   deploy:

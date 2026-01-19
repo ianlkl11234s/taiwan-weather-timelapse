@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>台灣溫度變化</title>
-    <meta name="description" content="Interactive visualization of Taiwan's temperature changes over time">
+    <title>台灣氣象變化</title>
+    <meta name="description" content="Interactive visualization of Taiwan's weather changes over time">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%23313695'/><stop offset='35%25' stop-color='%2374add1'/><stop offset='65%25' stop-color='%23fee090'/><stop offset='100%25' stop-color='%23d73027'/></linearGradient></defs><circle cx='16' cy='16' r='14' fill='url(%23g)'/></svg>">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -122,8 +122,45 @@
             font-size: 12px;
         }
 
-        .info-panel h2 { font-size: 17px; margin-bottom: 8px; color: #333; }
+        .info-panel h2 {
+            font-size: 17px;
+            margin-bottom: 8px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .title-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .title-icon.temperature {
+            background: linear-gradient(135deg, #74add1 0%, #abd9e9 35%, #fee090 65%, #f46d43 100%);
+        }
+        .title-icon.humidity {
+            background: linear-gradient(135deg, #8B4513 0%, #9ACD32 50%, #0000CD 100%);
+        }
         .info-panel .meta { color: #666; margin-bottom: 8px; line-height: 1.5; }
+
+        /* Data Type Selector */
+        .data-type-selector {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            background: white;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        .data-type-selector:focus {
+            outline: none;
+            border-color: #0d6efd;
+        }
 
         /* Social Links */
         .social-links {
@@ -463,9 +500,13 @@
         <div class="frame-counter" id="frame-counter">-- / --</div>
     </div>
 
-    <div class="info-panel">
-        <h2>台灣溫度變化</h2>
-        <div class="meta">
+    <div class="info-panel" id="info-panel">
+        <h2><span class="title-icon temperature" id="title-icon"></span><span id="panel-title">台灣溫度變化</span></h2>
+        <select class="data-type-selector" id="data-type-selector">
+            <option value="temperature">🌡️ 溫度 Temperature</option>
+            <option value="humidity">💧 濕度 Humidity</option>
+        </select>
+        <div class="meta" id="data-meta">
             <strong>Source:</strong> Central Weather Administration<br>
             <strong>Dataset:</strong> O-A0038-003<br>
             <strong>Resolution:</strong> 0.03&#176; (~3.3 km)
@@ -511,16 +552,28 @@
         </div>
     </div>
 
-    <div class="legend">
-        <h4>Temperature (&#176;C)</h4>
-        <div class="legend-item"><div class="legend-color" style="background:#313695"></div> &lt; 0&#176;C</div>
-        <div class="legend-item"><div class="legend-color" style="background:#4575b4"></div> 0 ~ 5&#176;C</div>
-        <div class="legend-item"><div class="legend-color" style="background:#74add1"></div> 5 ~ 10&#176;C</div>
-        <div class="legend-item"><div class="legend-color" style="background:#abd9e9"></div> 10 ~ 15&#176;C</div>
-        <div class="legend-item"><div class="legend-color" style="background:#fee090"></div> 15 ~ 18&#176;C</div>
-        <div class="legend-item"><div class="legend-color" style="background:#fdae61"></div> 18 ~ 20&#176;C</div>
-        <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div> 20 ~ 25&#176;C</div>
-        <div class="legend-item"><div class="legend-color" style="background:#d73027"></div> &gt; 25&#176;C</div>
+    <div class="legend" id="legend">
+        <div id="legend-temperature">
+            <h4>Temperature (&#176;C)</h4>
+            <div class="legend-item"><div class="legend-color" style="background:#313695"></div> &lt; 0&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#4575b4"></div> 0 ~ 5&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#74add1"></div> 5 ~ 10&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#abd9e9"></div> 10 ~ 15&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#fee090"></div> 15 ~ 18&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#fdae61"></div> 18 ~ 20&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div> 20 ~ 25&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#d73027"></div> &gt; 25&#176;C</div>
+        </div>
+        <div id="legend-humidity" style="display:none;">
+            <h4>Humidity (%)</h4>
+            <div class="legend-item"><div class="legend-color" style="background:#8B4513"></div> &lt; 30%</div>
+            <div class="legend-item"><div class="legend-color" style="background:#DAA520"></div> 30 ~ 50%</div>
+            <div class="legend-item"><div class="legend-color" style="background:#9ACD32"></div> 50 ~ 60%</div>
+            <div class="legend-item"><div class="legend-color" style="background:#32CD32"></div> 60 ~ 70%</div>
+            <div class="legend-item"><div class="legend-color" style="background:#4169E1"></div> 70 ~ 80%</div>
+            <div class="legend-item"><div class="legend-color" style="background:#0000CD"></div> 80 ~ 90%</div>
+            <div class="legend-item"><div class="legend-color" style="background:#00008B"></div> &gt; 90%</div>
+        </div>
     </div>
 
     <div class="hover-info" id="hover-info">
@@ -545,8 +598,11 @@
             maxZoom: 19
         }).addTo(map);
 
+        // Current data type
+        let currentDataType = 'temperature';
+
         // Temperature color function
-        function getColor(temp) {
+        function getTemperatureColor(temp) {
             if (temp < 0) return '#313695';
             if (temp < 5) return '#4575b4';
             if (temp < 10) return '#74add1';
@@ -555,6 +611,24 @@
             if (temp < 20) return '#fdae61';
             if (temp < 25) return '#f46d43';
             return '#d73027';
+        }
+
+        // Humidity color function
+        function getHumidityColor(humidity) {
+            if (humidity < 30) return '#8B4513';
+            if (humidity < 50) return '#DAA520';
+            if (humidity < 60) return '#9ACD32';
+            if (humidity < 70) return '#32CD32';
+            if (humidity < 80) return '#4169E1';
+            if (humidity < 90) return '#0000CD';
+            return '#00008B';
+        }
+
+        // Get color based on current data type
+        function getColor(value) {
+            return currentDataType === 'humidity'
+                ? getHumidityColor(value)
+                : getTemperatureColor(value);
         }
 
         // Time formatting
@@ -594,7 +668,7 @@
         }
 
         // Timelapse Player Class
-        class TemperatureTimelapse {
+        class WeatherTimelapse {
             constructor() {
                 this.data = null;
                 this.frames = [];
@@ -607,11 +681,86 @@
                 this.rectangles = [];
                 this.chartCanvas = null;
                 this.chartCtx = null;
-                this.avgTemps = [];
-                this.tempMin = 0;
-                this.tempMax = 30;
+                this.avgValues = [];
+                this.valueMin = 0;
+                this.valueMax = 30;
+                this.dataType = 'temperature';
 
                 this.initControls();
+                this.initDataTypeSelector();
+            }
+
+            initDataTypeSelector() {
+                const selector = document.getElementById('data-type-selector');
+                selector.addEventListener('change', async (e) => {
+                    const newType = e.target.value;
+                    if (newType !== this.dataType) {
+                        this.dataType = newType;
+                        currentDataType = newType;
+                        await this.switchDataType(newType);
+                    }
+                });
+            }
+
+            async switchDataType(dataType) {
+                this.pause();
+
+                // Show loading
+                const loadingEl = document.getElementById('loading');
+                const progressEl = document.getElementById('loading-progress');
+                const textEl = document.getElementById('loading-text');
+                loadingEl.style.display = 'block';
+                progressEl.style.width = '0%';
+                textEl.textContent = `Switching to ${dataType}...`;
+
+                // Update UI
+                this.updateUIForDataType(dataType);
+
+                // Clear existing grid
+                this.clearGrid();
+
+                // Load new data
+                await this.loadData(dataType);
+            }
+
+            updateUIForDataType(dataType) {
+                const titleIcon = document.getElementById('title-icon');
+                const panelTitle = document.getElementById('panel-title');
+                const dataMeta = document.getElementById('data-meta');
+                const legendTemp = document.getElementById('legend-temperature');
+                const legendHumid = document.getElementById('legend-humidity');
+                const chartTitle = document.querySelector('.temp-chart h4');
+
+                if (dataType === 'humidity') {
+                    titleIcon.className = 'title-icon humidity';
+                    panelTitle.textContent = '台灣濕度變化';
+                    dataMeta.innerHTML = `
+                        <strong>Source:</strong> Central Weather Administration<br>
+                        <strong>Data:</strong> Weather Stations (Interpolated)<br>
+                        <strong>Method:</strong> scipy.griddata cubic
+                    `;
+                    legendTemp.style.display = 'none';
+                    legendHumid.style.display = 'block';
+                    chartTitle.textContent = 'Average Humidity Trend';
+                } else {
+                    titleIcon.className = 'title-icon temperature';
+                    panelTitle.textContent = '台灣溫度變化';
+                    dataMeta.innerHTML = `
+                        <strong>Source:</strong> Central Weather Administration<br>
+                        <strong>Dataset:</strong> O-A0038-003<br>
+                        <strong>Resolution:</strong> 0.03° (~3.3 km)
+                    `;
+                    legendTemp.style.display = 'block';
+                    legendHumid.style.display = 'none';
+                    chartTitle.textContent = 'Average Temperature Trend';
+                }
+            }
+
+            clearGrid() {
+                for (const rect of this.rectangles) {
+                    map.removeLayer(rect);
+                }
+                this.rectangles = [];
             }
 
             initControls() {
@@ -647,17 +796,21 @@
                 });
             }
 
-            async loadData() {
+            async loadData(dataType = 'temperature') {
                 const loadingEl = document.getElementById('loading');
                 const progressEl = document.getElementById('loading-progress');
                 const textEl = document.getElementById('loading-text');
 
+                const dataFile = dataType === 'humidity'
+                    ? 'humidity_timelapse_data.json'
+                    : 'temperature_timelapse_data.json';
+
                 try {
-                    textEl.textContent = 'Downloading data...';
+                    textEl.textContent = `Downloading ${dataType} data...`;
                     progressEl.style.width = '20%';
 
-                    const response = await fetch('temperature_timelapse_data.json');
-                    if (!response.ok) throw new Error('Cannot load data');
+                    const response = await fetch(dataFile);
+                    if (!response.ok) throw new Error(`Cannot load ${dataType} data`);
 
                     progressEl.style.width = '60%';
                     textEl.textContent = 'Parsing data...';
@@ -749,12 +902,14 @@
                         rect._gridRow = row;
                         rect._gridCol = col;
 
+                        const self = this;
                         rect.on('mouseover', function(e) {
                             this.setStyle({ fillOpacity: 1, weight: 1, color: '#333' });
-                            const currentTemp = this._currentTemp;
-                            if (currentTemp !== null && currentTemp > -900) {
+                            const currentValue = this._currentValue;
+                            if (currentValue !== null && currentValue > -900) {
                                 hoverInfo.classList.add('active');
-                                hoverTemp.textContent = currentTemp.toFixed(1) + '°C';
+                                const unit = self.dataType === 'humidity' ? '%' : '°C';
+                                hoverTemp.textContent = currentValue.toFixed(1) + unit;
                                 hoverCoords.textContent = lat.toFixed(2) + '°N, ' + lon.toFixed(2) + '°E';
                             }
                         });
@@ -764,13 +919,14 @@
                             hoverInfo.classList.remove('active');
                         });
 
-                        // 手機版點擊顯示溫度
+                        // 手機版點擊顯示數值
                         rect.on('click', function(e) {
                             L.DomEvent.stopPropagation(e);
-                            const currentTemp = this._currentTemp;
-                            if (currentTemp !== null && currentTemp > -900) {
+                            const currentValue = this._currentValue;
+                            if (currentValue !== null && currentValue > -900) {
                                 hoverInfo.classList.add('active');
-                                hoverTemp.textContent = currentTemp.toFixed(1) + '°C';
+                                const unit = self.dataType === 'humidity' ? '%' : '°C';
+                                hoverTemp.textContent = currentValue.toFixed(1) + unit;
                                 hoverCoords.textContent = lat.toFixed(2) + '°N, ' + lon.toFixed(2) + '°E';
                             }
                         });
@@ -781,16 +937,23 @@
             }
 
             initChart() {
-                this.avgTemps = this.frames.map(f => f.stats?.avg || null).filter(t => t !== null);
+                this.avgValues = this.frames.map(f => f.stats?.avg || null).filter(t => t !== null);
 
-                if (this.avgTemps.length === 0) return;
+                if (this.avgValues.length === 0) return;
 
-                this.tempMin = Math.floor(Math.min(...this.avgTemps) - 2);
-                this.tempMax = Math.ceil(Math.max(...this.avgTemps) + 2);
+                this.valueMin = Math.floor(Math.min(...this.avgValues) - 2);
+                this.valueMax = Math.ceil(Math.max(...this.avgValues) + 2);
+
+                // Adjust range for humidity (0-100%)
+                if (this.dataType === 'humidity') {
+                    this.valueMin = Math.max(0, this.valueMin);
+                    this.valueMax = Math.min(100, this.valueMax);
+                }
 
                 document.getElementById('chart-start').textContent = formatTime(this.frames[0].time);
                 document.getElementById('chart-end').textContent = formatTime(this.frames[this.frames.length - 1].time);
-                document.getElementById('chart-temp-range').textContent = `${this.tempMin}° ~ ${this.tempMax}°`;
+                const unit = this.dataType === 'humidity' ? '%' : '°';
+                document.getElementById('chart-temp-range').textContent = `${this.valueMin}${unit} ~ ${this.valueMax}${unit}`;
 
                 this.chartCanvas = document.getElementById('chart-canvas');
                 this.chartCtx = this.chartCanvas.getContext('2d');
@@ -834,7 +997,7 @@
                     if (temp === null || temp === undefined) continue;
 
                     const x = padding + (i / (this.frames.length - 1)) * (width - padding * 2);
-                    const y = height - padding - ((temp - this.tempMin) / (this.tempMax - this.tempMin)) * (height - padding * 2);
+                    const y = height - padding - ((temp - this.valueMin) / (this.valueMax - this.valueMin)) * (height - padding * 2);
 
                     if (!started) {
                         ctx.moveTo(x, y);
@@ -851,7 +1014,7 @@
                     if (temp === null || temp === undefined) continue;
 
                     const x = padding + (i / (this.frames.length - 1)) * (width - padding * 2);
-                    const y = height - padding - ((temp - this.tempMin) / (this.tempMax - this.tempMin)) * (height - padding * 2);
+                    const y = height - padding - ((temp - this.valueMin) / (this.valueMax - this.valueMin)) * (height - padding * 2);
 
                     ctx.beginPath();
                     ctx.arc(x, y, 2, 0, Math.PI * 2);
@@ -881,7 +1044,7 @@
 
                     if (frame.data[row] && frame.data[row][col] !== undefined) {
                         const temp = frame.data[row][col];
-                        rect._currentTemp = temp;
+                        rect._currentValue = temp;
 
                         if (temp !== null && temp > -900) {
                             const color = getColor(temp);
@@ -898,12 +1061,13 @@
                 document.getElementById('timeline').value = index;
 
                 if (frame.stats) {
+                    const unit = this.dataType === 'humidity' ? '%' : '°';
                     document.getElementById('stat-min').textContent =
-                        frame.stats.min !== null ? frame.stats.min.toFixed(1) + '°' : '--';
+                        frame.stats.min !== null ? frame.stats.min.toFixed(1) + unit : '--';
                     document.getElementById('stat-max').textContent =
-                        frame.stats.max !== null ? frame.stats.max.toFixed(1) + '°' : '--';
+                        frame.stats.max !== null ? frame.stats.max.toFixed(1) + unit : '--';
                     document.getElementById('stat-avg').textContent =
-                        frame.stats.avg !== null ? frame.stats.avg.toFixed(1) + '°' : '--';
+                        frame.stats.avg !== null ? frame.stats.avg.toFixed(1) + unit : '--';
                     document.getElementById('stat-points').textContent =
                         frame.stats.valid_points ? frame.stats.valid_points.toLocaleString() : '--';
                 }
@@ -911,9 +1075,10 @@
                 const datetimeDisplay = document.getElementById('datetime-display');
                 const isDay = isDaytime(frame.time);
                 datetimeDisplay.className = 'datetime-display' + (isDay ? '' : ' night');
-                // 更新手機版平均溫度顯示
+                // 更新手機版平均值顯示
+                const mobileUnit = this.dataType === 'humidity' ? '%' : '°';
                 document.querySelector('.info-panel').dataset.avg =
-                    frame.stats?.avg !== null ? frame.stats.avg.toFixed(1) + '°' : '--';
+                    frame.stats?.avg !== null ? frame.stats.avg.toFixed(1) + mobileUnit : '--';
                 document.getElementById('display-date').textContent = formatDateDisplay(frame.time);
                 document.getElementById('display-time').textContent = formatTimeDisplay(frame.time);
                 document.getElementById('day-night-icon').textContent = isDay ? '☀️' : '🌙';
@@ -968,8 +1133,8 @@
         });
 
         // Initialize
-        const timelapse = new TemperatureTimelapse();
-        timelapse.loadData();
+        const timelapse = new WeatherTimelapse();
+        timelapse.loadData('temperature');
     </script>
 </body>
 </html>
