@@ -320,6 +320,24 @@
             outline: none;
             border-color: #0d6efd;
         }
+        .station-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #666;
+            cursor: pointer;
+            margin-bottom: 10px;
+            padding: 4px 0;
+        }
+        .station-toggle input {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+        .station-toggle:hover {
+            color: #333;
+        }
 
         /* Social Links */
         .social-links {
@@ -722,6 +740,10 @@
             <option value="humidity">濕度 Humidity</option>
             <option value="pressure">氣壓 Pressure</option>
         </select>
+        <label class="station-toggle">
+            <input type="checkbox" id="station-layer-toggle">
+            <span>顯示觀測站 (835)</span>
+        </label>
         <div class="meta" id="data-meta">
             <strong>Source:</strong> Central Weather Administration<br>
             <strong>Dataset:</strong> O-A0038-003<br>
@@ -978,10 +1000,16 @@
                 this.leftRectangles = [];
                 this.rightRectangles = [];
 
+                // Station layer properties
+                this.stationsData = null;
+                this.stationLayer = null;
+                this.showStations = false;
+
                 this.initControls();
                 this.initDataTypeSelector();
                 this.initViewToggle();
                 this.initCompareTypeSelectors();
+                this.initStationLayer();
             }
 
             initViewToggle() {
@@ -1023,6 +1051,58 @@
                         await this.reloadCompareData();
                     }
                 });
+            }
+
+            initStationLayer() {
+                const toggle = document.getElementById('station-layer-toggle');
+                toggle.addEventListener('change', async (e) => {
+                    this.showStations = e.target.checked;
+                    if (this.showStations) {
+                        await this.loadAndShowStations();
+                    } else {
+                        this.hideStations();
+                    }
+                });
+            }
+
+            async loadAndShowStations() {
+                if (!this.stationsData) {
+                    try {
+                        const response = await fetch('stations.json');
+                        this.stationsData = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load stations:', error);
+                        return;
+                    }
+                }
+
+                if (this.stationLayer) {
+                    map.removeLayer(this.stationLayer);
+                }
+
+                // Create station markers
+                const markers = this.stationsData.stations.map(station => {
+                    return L.circleMarker([station.lat, station.lon], {
+                        radius: 3,
+                        fillColor: '#333',
+                        color: '#fff',
+                        weight: 1,
+                        opacity: 0.8,
+                        fillOpacity: 0.7
+                    }).bindTooltip(`${station.name}<br>${station.county}<br>海拔: ${station.altitude || '--'}m`, {
+                        direction: 'top',
+                        offset: [0, -5]
+                    });
+                });
+
+                this.stationLayer = L.layerGroup(markers);
+                this.stationLayer.addTo(map);
+            }
+
+            hideStations() {
+                if (this.stationLayer) {
+                    map.removeLayer(this.stationLayer);
+                }
             }
 
             async reloadCompareData() {
