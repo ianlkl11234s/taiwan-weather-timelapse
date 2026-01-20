@@ -104,6 +104,11 @@
         .compare-time-display .date { font-size: 14px; font-weight: bold; }
         .compare-time-display .time { font-size: 12px; margin-top: 2px; }
 
+        /* Compare mode: hide zoom on map1, show on map2 (right side) */
+        .map-container.compare-mode .map-wrapper:first-child .leaflet-control-zoom {
+            display: none;
+        }
+
         /* View Toggle Button */
         .view-toggle {
             display: flex;
@@ -760,6 +765,7 @@
 
         // Initialize second map for compare mode
         const map2 = L.map('map2', { zoomControl: false }).setView([23.7, 121.0], 7);
+        L.control.zoom({ position: 'topright' }).addTo(map2);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '',
             maxZoom: 19
@@ -956,9 +962,12 @@
                 // Find closest frame index for current time
                 this.currentIndex = Math.min(this.currentIndex, this.frames.length - 1);
 
-                // Recreate single view grid
-                this.createGrid();
-                this.renderFrame(this.currentIndex);
+                // Invalidate map size after layout change, then recreate grid
+                setTimeout(() => {
+                    map.invalidateSize();
+                    this.createGrid();
+                    this.renderFrame(this.currentIndex);
+                }, 100);
             }
 
             clearCompareGrids() {
