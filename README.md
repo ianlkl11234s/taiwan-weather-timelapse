@@ -9,6 +9,7 @@
 ## 功能特色
 
 - **三種氣象圖層**：可切換顯示溫度、濕度或氣壓分布
+- **觀測站圖層**：可疊加顯示 835 個氣象測站位置
 - **比較模式**：左右並排同時檢視任意兩種氣象資料變化（桌面版）
 - 時間軸播放控制（播放/暫停/上一幀/下一幀）
 - 可調整播放速度（1x, 2x, 4x, 8x）
@@ -111,12 +112,14 @@ grid_data = griddata(points, values, (grid_lon, grid_lat), method='cubic')
 ```
 taiwan-weather-timelapse/
 ├── .github/workflows/
-│   └── update-data.yml           # GitHub Actions 每日自動更新
+│   ├── deploy.yml                # GitHub Pages 部署
+│   └── update-data.yml           # 每日資料自動更新
 ├── public/
 │   ├── index.html                # 主視覺化頁面
-│   ├── temperature_timelapse_data.json  # 溫度資料檔
-│   ├── humidity_timelapse_data.json     # 濕度資料檔
-│   └── pressure_timelapse_data.json     # 氣壓資料檔
+│   ├── temperature_timelapse_data.json  # 溫度資料
+│   ├── humidity_timelapse_data.json     # 濕度資料
+│   ├── pressure_timelapse_data.json     # 氣壓資料
+│   └── stations.json             # 觀測站位置資料
 ├── scripts/
 │   ├── update_data.py            # 溫度資料更新腳本
 │   ├── update_humidity.py        # 濕度資料更新腳本
