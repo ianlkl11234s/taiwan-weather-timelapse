@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Taiwan Pressure Timelapse - Data Update Script
+Taiwan Sea-Level Pressure (SLP) Timelapse - Data Update Script
 
-Downloads weather station data from S3, interpolates pressure using scipy griddata,
-and generates the timelapse JSON file.
+Downloads weather station data from S3, converts station pressure to sea-level pressure
+using barometric formula, then interpolates SLP using scipy griddata.
 
 Usage:
     # Using .env file in project root
@@ -18,6 +18,7 @@ Usage:
 
 import json
 import argparse
+import math
 import os
 import sys
 from pathlib import Path
@@ -65,6 +66,44 @@ GEO_INFO = {
     'grid_rows': 120,
     'grid_cols': 67
 }
+
+
+def calculate_sea_level_pressure(pressure: float, altitude: float, temperature: float) -> Optional[float]:
+    """
+    將測站氣壓換算為海平面氣壓 (Sea Level Pressure, SLP)
+
+    使用氣象學標準公式 (Barometric formula):
+    P_sl = P_st * (1 - 0.0065 * h / (T + 0.0065 * h + 273.15))^(-5.257)
+
+    Args:
+        pressure: 測站氣壓 (hPa)
+        altitude: 海拔高度 (m)
+        temperature: 氣溫 (°C)
+
+    Returns:
+        海平面氣壓 (hPa)，若輸入無效則返回 None
+    """
+    if pressure is None or altitude is None or temperature is None:
+        return None
+
+    try:
+        P = float(pressure)
+        h = float(altitude)
+        T = float(temperature)
+    except (ValueError, TypeError):
+        return None
+
+    # 排除異常值
+    if P <= 0 or h < 0 or h > 5000:
+        return None
+
+    # 0.0065 是大氣垂直遞減率 (6.5°C/km)
+    temperature_kelvin = T + 273.15
+
+    # 計算海平面氣壓
+    slp = P * math.pow(1 - (0.0065 * h) / (temperature_kelvin + 0.0065 * h), -5.257)
+
+    return round(slp, 1)
 
 
 def load_env_file(env_path: Path) -> Dict[str, str]:
@@ -225,32 +264,50 @@ def get_land_mask() -> Optional[np.ndarray]:
 
 def interpolate_pressure(stations: List[Dict], geo_info: Dict) -> Tuple[List[List], Dict]:
     """
-    Interpolate station pressure data to regular grid using scipy griddata.
+    Interpolate station sea-level pressure (SLP) to regular grid using scipy griddata.
+
+    先將測站氣壓換算成海平面氣壓，再進行空間內插。
+    這樣可以消除地形影響，產生有意義的氣壓分布圖。
 
     Args:
-        stations: List of station data with latitude, longitude, pressure
+        stations: List of station data with latitude, longitude, pressure, altitude, temperature
         geo_info: Grid configuration
 
     Returns:
         Tuple of (grid_data as 2D list, stats dict)
     """
-    # Filter stations with valid pressure data
-    valid_stations = [
-        s for s in stations
-        if s.get('pressure') is not None
-        and s.get('latitude') is not None
-        and s.get('longitude') is not None
-    ]
+    # Filter stations with valid data for SLP calculation
+    # 需要: pressure, altitude, temperature, latitude, longitude
+    valid_stations = []
+    for s in stations:
+        if (s.get('pressure') is not None
+            and s.get('latitude') is not None
+            and s.get('longitude') is not None
+            and s.get('altitude') is not None
+            and s.get('temperature') is not None):
+
+            # 計算海平面氣壓
+            slp = calculate_sea_level_pressure(
+                s['pressure'],
+                s['altitude'],
+                s['temperature']
+            )
+            if slp is not None and 900 < slp < 1100:
+                valid_stations.append({
+                    'longitude': s['longitude'],
+                    'latitude': s['latitude'],
+                    'slp': slp
+                })
 
     if len(valid_stations) < 4:
         return None, {'error': 'Not enough valid stations'}
 
-    # Extract coordinates and values
+    # Extract coordinates and SLP values
     points = np.array([
         (float(s['longitude']), float(s['latitude']))
         for s in valid_stations
     ])
-    values = np.array([float(s['pressure']) for s in valid_stations])
+    values = np.array([s['slp'] for s in valid_stations])
 
     # Create target grid
     lon = np.linspace(
@@ -398,8 +455,10 @@ def generate_timelapse_json(frames: List[Dict], output_path: Path) -> Dict:
             'total_frames': len(frames),
             'geo_info': GEO_INFO,
             'source': 'Central Weather Administration Weather Stations',
-            'description': 'Taiwan Pressure Grid Timelapse (Interpolated)',
-            'interpolation_method': 'scipy.griddata cubic'
+            'description': 'Taiwan Sea-Level Pressure (SLP) Grid Timelapse',
+            'interpolation_method': 'scipy.griddata cubic',
+            'pressure_type': 'sea_level_pressure',
+            'pressure_formula': 'P_sl = P_st * (1 - 0.0065*h / (T + 0.0065*h + 273.15))^(-5.257)'
         },
         'frames': frames
     }

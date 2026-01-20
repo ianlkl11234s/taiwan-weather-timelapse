@@ -791,13 +791,12 @@
             <div class="legend-item"><div class="legend-color" style="background:#5e3a86"></div> &gt; 90% 極濕</div>
         </div>
         <div id="legend-pressure" style="display:none;">
-            <h4>Pressure (hPa)</h4>
-            <div class="legend-item"><div class="legend-color" style="background:#7b68a6"></div> &lt; 990 低壓</div>
-            <div class="legend-item"><div class="legend-color" style="background:#5e8bb8"></div> 990 ~ 1000</div>
-            <div class="legend-item"><div class="legend-color" style="background:#7cb87c"></div> 1000 ~ 1010 標準</div>
-            <div class="legend-item"><div class="legend-color" style="background:#b8b85e"></div> 1010 ~ 1020</div>
-            <div class="legend-item"><div class="legend-color" style="background:#d48c4e"></div> 1020 ~ 1030</div>
-            <div class="legend-item"><div class="legend-color" style="background:#c45a4a"></div> &gt; 1030 高壓</div>
+            <h4>氣壓 (hPa)</h4>
+            <div class="legend-item"><div class="legend-color" style="background:#4575b4"></div> &lt; 1000 低壓</div>
+            <div class="legend-item"><div class="legend-color" style="background:#abd9e9"></div> 1004 ~ 1008</div>
+            <div class="legend-item"><div class="legend-color" style="background:#fee090"></div> 1012 ~ 1014 標準</div>
+            <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div> 1018 ~ 1020</div>
+            <div class="legend-item"><div class="legend-color" style="background:#d73027"></div> &gt; 1020 高壓</div>
         </div>
     </div>
 
@@ -871,23 +870,31 @@
             return '#5e3a86';                     // 極濕 (紫色)
         }
 
-        // 氣壓配色 (單位：hPa / 百帕)
-        // 冷色系（藍紫）= 低壓（不穩定），暖色系（紅橙）= 高壓（穩定）
+        // 氣壓專用：Spectral 系統 (與溫度圖風格一致)
+        // 邏輯：低壓(藍/濕冷) -> 正常(黃/綠) -> 高壓(紅/乾熱)
         function getPressureColor(val) {
-            // 異常低壓 (颱風等級)
-            if (val < 990) return '#5E4FA2';  // 深紫
-            if (val < 1000) return '#3288BD'; // 深藍 (低壓區)
+            // --- 颱風/熱帶低壓等級 (< 1000) ---
+            if (val < 990) return '#313695';  // 深藍 (強颱/劇烈低壓)
+            if (val < 996) return '#4575b4';  // 藍色 (颱風外圍)
 
-            // 正常範圍
-            if (val < 1008) return '#66C2A5'; // 青綠
-            if (val < 1014) return '#ABDDA4'; // 淺綠 (標準大氣壓附近)
+            // --- 一般低壓帶 (1000 ~ 1008) ---
+            // 夏天常見，或鋒面接近
+            if (val < 1004) return '#74add1'; // 淺藍
+            if (val < 1008) return '#abd9e9'; // 淡藍
 
-            // 高壓區
-            if (val < 1020) return '#FEE08B'; // 淺黃
-            if (val < 1026) return '#FDAE61'; // 橘黃 (高壓脊)
+            // --- 標準過渡帶 (1008 ~ 1014) ---
+            // 這是台灣春秋或夏天好天氣常見的數值
+            if (val < 1012) return '#e0f3f8'; // 極淡藍/白 (中性)
+            if (val < 1014) return '#fee090'; // 淡黃 (開始轉高壓)
 
-            // 強高壓 (強烈大陸冷氣團)
-            return '#D53E4F';                 // 深紅
+            // --- 高壓帶 (1014 ~ 1020) ---
+            // 冬天舒適晴天，或太平洋高壓邊緣
+            if (val < 1018) return '#fdae61'; // 橘黃
+            if (val < 1020) return '#f46d43'; // 橘紅
+
+            // --- 強烈大陸冷氣團等級 (> 1020) ---
+            // 寒流來襲，氣壓極高
+            return '#d73027';                 // 深紅 (強高壓)
         }
 
         // Get color based on data type
@@ -1096,13 +1103,11 @@
                     case 'pressure':
                         legendHTML = `
                             <h5>氣壓 (hPa)</h5>
-                            <div class="legend-item"><div class="legend-color" style="background:#5E4FA2"></div>&lt;990 低壓</div>
-                            <div class="legend-item"><div class="legend-color" style="background:#3288BD"></div>990-1000</div>
-                            <div class="legend-item"><div class="legend-color" style="background:#66C2A5"></div>1000-1008</div>
-                            <div class="legend-item"><div class="legend-color" style="background:#ABDDA4"></div>1008-1014</div>
-                            <div class="legend-item"><div class="legend-color" style="background:#FEE08B"></div>1014-1020</div>
-                            <div class="legend-item"><div class="legend-color" style="background:#FDAE61"></div>1020-1026</div>
-                            <div class="legend-item"><div class="legend-color" style="background:#D53E4F"></div>&gt;1026 高壓</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#4575b4"></div>&lt;1000 低壓</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#abd9e9"></div>1004-1008</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#fee090"></div>1012-1014</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div>1018-1020</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#d73027"></div>&gt;1020 高壓</div>
                         `;
                         break;
                     default: // temperature
