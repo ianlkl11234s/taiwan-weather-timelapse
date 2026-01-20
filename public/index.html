@@ -12,6 +12,99 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
 
+        /* Map Container */
+        .map-container {
+            height: calc(100vh - 80px);
+            width: 100%;
+            display: flex;
+            position: relative;
+        }
+
+        .map-wrapper {
+            flex: 1;
+            position: relative;
+            height: 100%;
+        }
+
+        .map-wrapper .map {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Single view - hide second map */
+        .map-container:not(.compare-mode) .map-wrapper:nth-child(2) {
+            display: none;
+        }
+
+        /* Compare mode - show both maps side by side */
+        .map-container.compare-mode .map-wrapper {
+            flex: 1;
+            border-right: 2px solid #dee2e6;
+        }
+        .map-container.compare-mode .map-wrapper:last-child {
+            border-right: none;
+        }
+
+        /* Map Labels */
+        .map-label {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255,255,255,0.95);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            display: none;
+        }
+        .map-container.compare-mode .map-label {
+            display: block;
+        }
+        .map-label.temperature { color: #d73027; }
+        .map-label.humidity { color: #5e3a86; }
+
+        /* Compare mode legends */
+        .compare-legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.95);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            display: none;
+        }
+        .map-container.compare-mode .compare-legend { display: block; }
+        .compare-legend h5 { margin: 0 0 6px 0; font-size: 12px; }
+        .compare-legend .legend-item { display: flex; align-items: center; margin: 2px 0; }
+        .compare-legend .legend-color { width: 16px; height: 10px; margin-right: 6px; border-radius: 2px; }
+
+        /* View Toggle Button */
+        .view-toggle {
+            display: flex;
+            gap: 2px;
+            background: #e9ecef;
+            border-radius: 6px;
+            padding: 2px;
+        }
+        .view-toggle-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .view-toggle-btn:hover { background: rgba(255,255,255,0.5); }
+        .view-toggle-btn.active { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+        /* Legacy single map support */
         #map { height: calc(100vh - 80px); width: 100%; }
 
         /* Time Controller */
@@ -383,6 +476,13 @@
 
         /* Responsive */
         @media (max-width: 768px) {
+            /* Hide compare mode on mobile */
+            .view-toggle { display: none !important; }
+            .map-container.compare-mode .map-wrapper:nth-child(2) { display: none; }
+            .map-container.compare-mode .map-wrapper { border-right: none; }
+            .map-label { display: none !important; }
+            .compare-legend { display: none !important; }
+
             .info-panel {
                 max-width: none;
                 width: 160px;
@@ -459,7 +559,32 @@
     </style>
 </head>
 <body>
-    <div id="map"></div>
+    <div class="map-container" id="map-container">
+        <div class="map-wrapper">
+            <div class="map" id="map"></div>
+            <div class="map-label temperature">🌡️ 溫度 Temperature</div>
+            <div class="compare-legend">
+                <h5>溫度 (°C)</h5>
+                <div class="legend-item"><div class="legend-color" style="background:#313695"></div>&lt;0°</div>
+                <div class="legend-item"><div class="legend-color" style="background:#74add1"></div>5-10°</div>
+                <div class="legend-item"><div class="legend-color" style="background:#fee090"></div>15-18°</div>
+                <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div>20-25°</div>
+                <div class="legend-item"><div class="legend-color" style="background:#d73027"></div>&gt;25°</div>
+            </div>
+        </div>
+        <div class="map-wrapper">
+            <div class="map" id="map2"></div>
+            <div class="map-label humidity">💧 濕度 Humidity</div>
+            <div class="compare-legend">
+                <h5>濕度 (%)</h5>
+                <div class="legend-item"><div class="legend-color" style="background:#b48f60"></div>&lt;40%</div>
+                <div class="legend-item"><div class="legend-color" style="background:#b6d69f"></div>60-70%</div>
+                <div class="legend-item"><div class="legend-color" style="background:#64b6e1"></div>70-80%</div>
+                <div class="legend-item"><div class="legend-color" style="background:#5a6fc2"></div>80-90%</div>
+                <div class="legend-item"><div class="legend-color" style="background:#5e3a86"></div>&gt;90%</div>
+            </div>
+        </div>
+    </div>
 
     <div class="social-links">
         <a href="https://github.com/ianlkl11234s/taiwan-weather-timelapse" target="_blank" title="GitHub">
@@ -479,6 +604,11 @@
             <button class="control-btn" id="btn-prev" title="Previous">&#x23EE;</button>
             <button class="control-btn" id="btn-play" title="Play/Pause">&#x25B6;</button>
             <button class="control-btn" id="btn-next" title="Next">&#x23ED;</button>
+        </div>
+
+        <div class="view-toggle">
+            <button class="view-toggle-btn active" data-view="single">單一</button>
+            <button class="view-toggle-btn" data-view="compare">比較</button>
         </div>
 
         <div class="speed-buttons">
@@ -590,7 +720,11 @@
     </div>
 
     <script>
-        // Initialize map
+        // View mode state
+        let isCompareMode = false;
+        let currentDataType = 'temperature';
+
+        // Initialize maps
         const map = L.map('map', { zoomControl: false }).setView([23.7, 121.0], 7);
         L.control.zoom({ position: 'topright' }).addTo(map);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -598,8 +732,23 @@
             maxZoom: 19
         }).addTo(map);
 
-        // Current data type
-        let currentDataType = 'temperature';
+        // Initialize second map for compare mode
+        const map2 = L.map('map2', { zoomControl: false }).setView([23.7, 121.0], 7);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '',
+            maxZoom: 19
+        }).addTo(map2);
+
+        // Sync maps - when one moves, the other follows
+        let isSyncing = false;
+        function syncMaps(sourceMap, targetMap) {
+            if (isSyncing) return;
+            isSyncing = true;
+            targetMap.setView(sourceMap.getCenter(), sourceMap.getZoom(), { animate: false });
+            isSyncing = false;
+        }
+        map.on('move', () => syncMaps(map, map2));
+        map2.on('move', () => syncMaps(map2, map));
 
         // Temperature color function
         function getTemperatureColor(temp) {
@@ -686,8 +835,305 @@
                 this.valueMax = 30;
                 this.dataType = 'temperature';
 
+                // Compare mode properties
+                this.isCompareMode = false;
+                this.tempData = null;
+                this.humidData = null;
+                this.tempFrames = [];
+                this.humidFrames = [];
+                this.tempRectangles = [];
+                this.humidRectangles = [];
+
                 this.initControls();
                 this.initDataTypeSelector();
+                this.initViewToggle();
+            }
+
+            initViewToggle() {
+                document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const view = e.target.dataset.view;
+                        document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.remove('active'));
+                        e.target.classList.add('active');
+
+                        if (view === 'compare') {
+                            await this.enterCompareMode();
+                        } else {
+                            this.exitCompareMode();
+                        }
+                    });
+                });
+            }
+
+            async enterCompareMode() {
+                this.pause();
+                this.isCompareMode = true;
+                isCompareMode = true;
+                document.getElementById('map-container').classList.add('compare-mode');
+
+                // Hide single view controls
+                document.getElementById('data-type-selector').style.display = 'none';
+                document.getElementById('info-panel').style.display = 'none';
+                document.querySelector('.temp-chart').style.display = 'none';
+                document.getElementById('legend').style.display = 'none';
+
+                // Clear single view grid
+                this.clearGrid();
+
+                // Show loading
+                const loadingEl = document.getElementById('loading');
+                const progressEl = document.getElementById('loading-progress');
+                const textEl = document.getElementById('loading-text');
+                loadingEl.style.display = 'block';
+                progressEl.style.width = '0%';
+                textEl.textContent = 'Loading compare data...';
+
+                // Load both datasets
+                await this.loadCompareData();
+
+                // Invalidate map sizes and center on Taiwan
+                setTimeout(() => {
+                    map.invalidateSize();
+                    map2.invalidateSize();
+                    // Center both maps on Taiwan with appropriate zoom for split view
+                    const taiwanCenter = [23.5, 121.0];
+                    const compareZoom = 7.5;
+                    map.setView(taiwanCenter, compareZoom, { animate: false });
+                    map2.setView(taiwanCenter, compareZoom, { animate: false });
+                }, 150);
+
+                loadingEl.style.display = 'none';
+            }
+
+            exitCompareMode() {
+                this.pause();
+                this.isCompareMode = false;
+                isCompareMode = false;
+                document.getElementById('map-container').classList.remove('compare-mode');
+
+                // Show single view controls
+                document.getElementById('data-type-selector').style.display = 'block';
+                document.getElementById('info-panel').style.display = 'block';
+                document.querySelector('.temp-chart').style.display = 'block';
+                document.getElementById('legend').style.display = 'block';
+
+                // Clear compare mode grids
+                this.clearCompareGrids();
+
+                // Restore single view grid and timeline
+                document.getElementById('timeline').max = this.frames.length - 1;
+                document.getElementById('start-time').textContent = formatTime(this.frames[0].time);
+                document.getElementById('end-time').textContent = formatTime(this.frames[this.frames.length - 1].time);
+
+                // Find closest frame index for current time
+                this.currentIndex = Math.min(this.currentIndex, this.frames.length - 1);
+
+                // Recreate single view grid
+                this.createGrid();
+                this.renderFrame(this.currentIndex);
+            }
+
+            clearCompareGrids() {
+                for (const rect of this.tempRectangles) {
+                    map.removeLayer(rect);
+                }
+                for (const rect of this.humidRectangles) {
+                    map2.removeLayer(rect);
+                }
+                this.tempRectangles = [];
+                this.humidRectangles = [];
+            }
+
+            async loadCompareData() {
+                const progressEl = document.getElementById('loading-progress');
+                const textEl = document.getElementById('loading-text');
+
+                // Load temperature data
+                textEl.textContent = 'Loading temperature data...';
+                progressEl.style.width = '25%';
+                const tempResponse = await fetch('temperature_timelapse_data.json');
+                this.tempData = await tempResponse.json();
+
+                // Load humidity data
+                textEl.textContent = 'Loading humidity data...';
+                progressEl.style.width = '50%';
+                const humidResponse = await fetch('humidity_timelapse_data.json');
+                this.humidData = await humidResponse.json();
+
+                // Filter and align frames by time
+                textEl.textContent = 'Processing data...';
+                progressEl.style.width = '75%';
+                this.alignCompareFrames();
+
+                // Create grids for both maps
+                textEl.textContent = 'Creating grids...';
+                progressEl.style.width = '90%';
+                this.createCompareGrids();
+
+                // Render first frame
+                this.renderCompareFrame(this.currentIndex);
+                progressEl.style.width = '100%';
+            }
+
+            alignCompareFrames() {
+                // Apply same 30-day filter as single view
+                const startDate = new Date('2025-12-27T00:00:00');
+                const now = new Date();
+                const thirtyDaysAgo = new Date(now);
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                thirtyDaysAgo.setHours(0, 0, 0, 0);
+                const cutoffDate = startDate > thirtyDaysAgo ? startDate : thirtyDaysAgo;
+
+                // Create time-indexed maps with filtered data
+                const tempByTime = new Map();
+                const humidByTime = new Map();
+
+                for (const frame of this.tempData.frames) {
+                    const frameDate = new Date(frame.time);
+                    if (frameDate >= cutoffDate) {
+                        const timeKey = frame.time.substring(0, 16); // YYYY-MM-DDTHH:MM
+                        tempByTime.set(timeKey, frame);
+                    }
+                }
+
+                for (const frame of this.humidData.frames) {
+                    const frameDate = new Date(frame.time);
+                    if (frameDate >= cutoffDate) {
+                        const timeKey = frame.time.substring(0, 16);
+                        humidByTime.set(timeKey, frame);
+                    }
+                }
+
+                // Find common times
+                this.tempFrames = [];
+                this.humidFrames = [];
+
+                for (const [timeKey, tempFrame] of tempByTime) {
+                    if (humidByTime.has(timeKey)) {
+                        this.tempFrames.push(tempFrame);
+                        this.humidFrames.push(humidByTime.get(timeKey));
+                    }
+                }
+
+                // Sort by time
+                this.tempFrames.sort((a, b) => new Date(a.time) - new Date(b.time));
+                this.humidFrames.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+                // Update timeline
+                if (this.tempFrames.length > 0) {
+                    document.getElementById('start-time').textContent = formatTime(this.tempFrames[0].time);
+                    document.getElementById('end-time').textContent = formatTime(this.tempFrames[this.tempFrames.length - 1].time);
+                    document.getElementById('timeline').max = this.tempFrames.length - 1;
+                    this.currentIndex = Math.min(this.currentIndex, this.tempFrames.length - 1);
+                }
+            }
+
+            createCompareGrids() {
+                const tempGeo = this.tempData.metadata.geo_info;
+                const humidGeo = this.humidData.metadata.geo_info;
+                const resolution = tempGeo.resolution_deg || 0.03;
+
+                // Create temperature grid on map1
+                if (this.tempFrames.length > 0) {
+                    const firstFrame = this.tempFrames[0];
+                    for (let row = 0; row < firstFrame.data.length; row++) {
+                        for (let col = 0; col < firstFrame.data[row].length; col++) {
+                            const val = firstFrame.data[row][col];
+                            if (val === null || val < -900) continue;
+
+                            const lat = tempGeo.bottom_left_lat + row * resolution;
+                            const lon = tempGeo.bottom_left_lon + col * resolution;
+                            const bounds = [
+                                [lat - resolution/2, lon - resolution/2],
+                                [lat + resolution/2, lon + resolution/2]
+                            ];
+
+                            const rect = L.rectangle(bounds, {
+                                color: getTemperatureColor(val),
+                                fillColor: getTemperatureColor(val),
+                                fillOpacity: 0.7,
+                                weight: 0
+                            }).addTo(map);
+
+                            rect._gridRow = row;
+                            rect._gridCol = col;
+                            this.tempRectangles.push(rect);
+                        }
+                    }
+                }
+
+                // Create humidity grid on map2
+                if (this.humidFrames.length > 0) {
+                    const firstFrame = this.humidFrames[0];
+                    for (let row = 0; row < firstFrame.data.length; row++) {
+                        for (let col = 0; col < firstFrame.data[row].length; col++) {
+                            const val = firstFrame.data[row][col];
+                            if (val === null || val < -900) continue;
+
+                            const lat = humidGeo.bottom_left_lat + row * resolution;
+                            const lon = humidGeo.bottom_left_lon + col * resolution;
+                            const bounds = [
+                                [lat - resolution/2, lon - resolution/2],
+                                [lat + resolution/2, lon + resolution/2]
+                            ];
+
+                            const rect = L.rectangle(bounds, {
+                                color: getHumidityColor(val),
+                                fillColor: getHumidityColor(val),
+                                fillOpacity: 0.7,
+                                weight: 0
+                            }).addTo(map2);
+
+                            rect._gridRow = row;
+                            rect._gridCol = col;
+                            this.humidRectangles.push(rect);
+                        }
+                    }
+                }
+            }
+
+            renderCompareFrame(index) {
+                if (index < 0 || index >= this.tempFrames.length) return;
+
+                this.currentIndex = index;
+                const tempFrame = this.tempFrames[index];
+                const humidFrame = this.humidFrames[index];
+
+                // Update temperature grid
+                for (const rect of this.tempRectangles) {
+                    const row = rect._gridRow;
+                    const col = rect._gridCol;
+                    if (tempFrame.data[row] && tempFrame.data[row][col] !== undefined) {
+                        const val = tempFrame.data[row][col];
+                        if (val !== null && val > -900) {
+                            const color = getTemperatureColor(val);
+                            rect.setStyle({ color, fillColor: color, opacity: 1, fillOpacity: 0.7 });
+                        } else {
+                            rect.setStyle({ opacity: 0, fillOpacity: 0 });
+                        }
+                    }
+                }
+
+                // Update humidity grid
+                for (const rect of this.humidRectangles) {
+                    const row = rect._gridRow;
+                    const col = rect._gridCol;
+                    if (humidFrame.data[row] && humidFrame.data[row][col] !== undefined) {
+                        const val = humidFrame.data[row][col];
+                        if (val !== null && val > -900) {
+                            const color = getHumidityColor(val);
+                            rect.setStyle({ color, fillColor: color, opacity: 1, fillOpacity: 0.7 });
+                        } else {
+                            rect.setStyle({ opacity: 0, fillOpacity: 0 });
+                        }
+                    }
+                }
+
+                // Update UI with date and time
+                const dateStr = formatDateDisplay(tempFrame.time);
+                const timeStr = formatTimeDisplay(tempFrame.time);
+                document.getElementById('current-time').textContent = `${dateStr} ${timeStr}`;
+                document.getElementById('timeline').value = index;
             }
 
             initDataTypeSelector() {
@@ -774,12 +1220,14 @@
 
                 document.getElementById('btn-prev').addEventListener('click', () => {
                     this.pause();
+                    const maxIndex = this.isCompareMode ? this.tempFrames.length - 1 : this.frames.length - 1;
                     this.seekTo(Math.max(0, this.currentIndex - 1));
                 });
 
                 document.getElementById('btn-next').addEventListener('click', () => {
                     this.pause();
-                    this.seekTo(Math.min(this.frames.length - 1, this.currentIndex + 1));
+                    const maxIndex = this.isCompareMode ? this.tempFrames.length - 1 : this.frames.length - 1;
+                    this.seekTo(Math.min(maxIndex, this.currentIndex + 1));
                 });
 
                 document.querySelectorAll('.speed-btn').forEach(btn => {
@@ -1088,7 +1536,8 @@
             }
 
             play() {
-                if (this.frames.length === 0) return;
+                const framesLength = this.isCompareMode ? this.tempFrames.length : this.frames.length;
+                if (framesLength === 0) return;
 
                 this.isPlaying = true;
                 document.getElementById('btn-play').innerHTML = '&#x23F8;';
@@ -1096,10 +1545,14 @@
 
                 this.intervalId = setInterval(() => {
                     let nextIndex = this.currentIndex + 1;
-                    if (nextIndex >= this.frames.length) {
+                    if (nextIndex >= framesLength) {
                         nextIndex = 0;
                     }
-                    this.renderFrame(nextIndex);
+                    if (this.isCompareMode) {
+                        this.renderCompareFrame(nextIndex);
+                    } else {
+                        this.renderFrame(nextIndex);
+                    }
                 }, this.intervalMs / this.speed);
             }
 
@@ -1123,7 +1576,11 @@
             }
 
             seekTo(index) {
-                this.renderFrame(index);
+                if (this.isCompareMode) {
+                    this.renderCompareFrame(index);
+                } else {
+                    this.renderFrame(index);
+                }
             }
         }
 
