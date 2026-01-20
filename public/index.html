@@ -84,6 +84,26 @@
         .compare-legend .legend-item { display: flex; align-items: center; margin: 2px 0; }
         .compare-legend .legend-color { width: 16px; height: 10px; margin-right: 6px; border-radius: 2px; }
 
+        /* Compare mode time display */
+        .compare-time-display {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.95);
+            padding: 8px 14px;
+            border-radius: 8px;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            display: none;
+            text-align: center;
+        }
+        .compare-time-display.night {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+        }
+        .compare-time-display .date { font-size: 14px; font-weight: bold; }
+        .compare-time-display .time { font-size: 12px; margin-top: 2px; }
+
         /* View Toggle Button */
         .view-toggle {
             display: flex;
@@ -482,6 +502,7 @@
             .map-container.compare-mode .map-wrapper { border-right: none; }
             .map-label { display: none !important; }
             .compare-legend { display: none !important; }
+            .compare-time-display { display: none !important; }
 
             .info-panel {
                 max-width: none;
@@ -584,6 +605,11 @@
                 <div class="legend-item"><div class="legend-color" style="background:#5e3a86"></div>&gt;90%</div>
             </div>
         </div>
+    </div>
+
+    <div class="compare-time-display" id="compare-time-display">
+        <div class="date" id="compare-date">--</div>
+        <div class="time" id="compare-time">--:--</div>
     </div>
 
     <div class="social-links">
@@ -871,11 +897,12 @@
                 isCompareMode = true;
                 document.getElementById('map-container').classList.add('compare-mode');
 
-                // Hide single view controls
+                // Hide single view controls, show compare time display
                 document.getElementById('data-type-selector').style.display = 'none';
                 document.getElementById('info-panel').style.display = 'none';
                 document.querySelector('.temp-chart').style.display = 'none';
                 document.getElementById('legend').style.display = 'none';
+                document.getElementById('compare-time-display').style.display = 'block';
 
                 // Clear single view grid
                 this.clearGrid();
@@ -911,11 +938,12 @@
                 isCompareMode = false;
                 document.getElementById('map-container').classList.remove('compare-mode');
 
-                // Show single view controls
+                // Show single view controls, hide compare time display
                 document.getElementById('data-type-selector').style.display = 'block';
                 document.getElementById('info-panel').style.display = 'block';
                 document.querySelector('.temp-chart').style.display = 'block';
                 document.getElementById('legend').style.display = 'block';
+                document.getElementById('compare-time-display').style.display = 'none';
 
                 // Clear compare mode grids
                 this.clearCompareGrids();
@@ -1134,6 +1162,13 @@
                 const timeStr = formatTimeDisplay(tempFrame.time);
                 document.getElementById('current-time').textContent = `${dateStr} ${timeStr}`;
                 document.getElementById('timeline').value = index;
+
+                // Update compare time display
+                const compareTimeDisplay = document.getElementById('compare-time-display');
+                document.getElementById('compare-date').textContent = dateStr;
+                document.getElementById('compare-time').textContent = timeStr;
+                const isDay = isDaytime(tempFrame.time);
+                compareTimeDisplay.className = 'compare-time-display' + (isDay ? '' : ' night');
             }
 
             initDataTypeSelector() {
