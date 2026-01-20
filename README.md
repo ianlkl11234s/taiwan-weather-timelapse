@@ -1,6 +1,6 @@
 # 台灣氣象變化
 
-互動式台灣氣象網格變化視覺化，呈現過去 30 天的溫度與濕度時間軸動畫。
+互動式台灣氣象網格變化視覺化，呈現過去 30 天的溫度、濕度與氣壓時間軸動畫。
 
 ## Demo
 
@@ -8,8 +8,8 @@
 
 ## 功能特色
 
-- **溫度與濕度圖層**：可切換顯示溫度或濕度分布
-- **比較模式**：左右並排同時檢視溫度與濕度變化（桌面版）
+- **三種氣象圖層**：可切換顯示溫度、濕度或氣壓分布
+- **比較模式**：左右並排同時檢視任意兩種氣象資料變化（桌面版）
 - 時間軸播放控制（播放/暫停/上一幀/下一幀）
 - 可調整播放速度（1x, 2x, 4x, 8x）
 - 日/夜時段指示（09:00-18:00 為白天）
@@ -31,13 +31,22 @@
 - **處理方式**：空間內插至 120×67 網格
 - **解析度**：0.03°（約 3.3 公里），與溫度網格一致
 
-#### 濕度內插法說明
+### 氣壓資料
+- **提供者**：中央氣象署 氣象測站資料
+- **資料來源**：約 835 個氣象測站的即時觀測資料
+- **處理方式**：空間內插至 120×67 網格
+- **解析度**：0.03°（約 3.3 公里），與溫度網格一致
+- **單位**：百帕（hPa）
 
-濕度資料使用 `scipy.interpolate.griddata` 的 **cubic（三次）內插法**，將離散的氣象測站資料內插至連續網格：
+---
+
+## 內插法說明
+
+濕度與氣壓資料使用 `scipy.interpolate.griddata` 的 **cubic（三次）內插法**，將離散的氣象測站資料內插至連續網格：
 
 ```python
 from scipy.interpolate import griddata
-grid_humidity = griddata(points, values, (grid_lon, grid_lat), method='cubic')
+grid_data = griddata(points, values, (grid_lon, grid_lat), method='cubic')
 ```
 
 **為什麼選擇 cubic 內插？**
@@ -45,7 +54,9 @@ grid_humidity = griddata(points, values, (grid_lon, grid_lat), method='cubic')
 - 比 linear 內插更能捕捉局部變化趨勢
 - 適合氣象資料這類空間上連續變化的物理量
 
-#### 可能的偏誤與限制
+### 可能的偏誤與限制
+
+#### 濕度資料
 
 1. **測站分布不均**：氣象測站主要集中在平地與都市區域，山區測站較少，導致高海拔地區的濕度估計可能不夠準確。
 
@@ -56,6 +67,18 @@ grid_humidity = griddata(points, values, (grid_lon, grid_lat), method='cubic')
 4. **時間解析度**：濕度變化通常比溫度更劇烈，每小時一次的取樣可能無法完整呈現短時間內的變化。
 
 5. **地形影響**：山區迎風面與背風面的濕度差異可能因測站不足而被低估。
+
+#### 氣壓資料
+
+1. **海拔校正**：測站氣壓通常已校正至海平面，但內插過程中可能在山區產生偏差。
+
+2. **空間平滑性**：氣壓在空間上變化相對平滑，因此內插效果通常較濕度更好。
+
+3. **數值範圍**：內插後的數值已限制在 900-1100 hPa 範圍內，以過濾不合理的極端值。
+
+4. **局部氣壓系統**：小範圍的氣壓變化（如雷雨胞）可能因測站密度不足而無法完整呈現。
+
+---
 
 ### 資料更新
 - **更新頻率**：每日一次（GitHub Actions 自動執行）
@@ -70,10 +93,12 @@ taiwan-weather-timelapse/
 ├── public/
 │   ├── index.html                # 主視覺化頁面
 │   ├── temperature_timelapse_data.json  # 溫度資料檔
-│   └── humidity_timelapse_data.json     # 濕度資料檔
+│   ├── humidity_timelapse_data.json     # 濕度資料檔
+│   └── pressure_timelapse_data.json     # 氣壓資料檔
 ├── scripts/
 │   ├── update_data.py            # 溫度資料更新腳本
 │   ├── update_humidity.py        # 濕度資料更新腳本
+│   ├── update_pressure.py        # 氣壓資料更新腳本
 │   └── requirements.txt          # Python 依賴套件
 └── README.md
 ```
@@ -101,7 +126,8 @@ taiwan-weather-timelapse/
         ↓
   GitHub Actions (每日)
    ├── 溫度：直接使用網格資料
-   └── 濕度：測站資料 → 空間內插
+   ├── 濕度：測站資料 → 空間內插
+   └── 氣壓：測站資料 → 空間內插
         ↓
    GitHub Pages 部署
 ```

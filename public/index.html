@@ -65,6 +65,7 @@
         }
         .map-label.temperature { color: #d73027; }
         .map-label.humidity { color: #5e3a86; }
+        .map-label.pressure { color: #7cb87c; }
 
         /* Compare mode legends */
         .compare-legend {
@@ -103,6 +104,43 @@
         }
         .compare-time-display .date { font-size: 14px; font-weight: bold; }
         .compare-time-display .time { font-size: 12px; margin-top: 2px; }
+        .compare-selectors {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(0,0,0,0.1);
+        }
+        .compare-time-display.night .compare-selectors {
+            border-top-color: rgba(255,255,255,0.2);
+        }
+        .compare-type-selector {
+            padding: 4px 8px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            background: white;
+            cursor: pointer;
+            min-width: 60px;
+        }
+        .compare-time-display.night .compare-type-selector {
+            background: rgba(255,255,255,0.9);
+            color: #333;
+        }
+        .compare-type-selector:focus {
+            outline: none;
+            border-color: #0d6efd;
+        }
+        .compare-vs {
+            font-size: 11px;
+            font-weight: bold;
+            color: #666;
+        }
+        .compare-time-display.night .compare-vs {
+            color: rgba(255,255,255,0.7);
+        }
 
         /* Compare mode: hide zoom on map1, show on map2 (right side) */
         .map-container.compare-mode .map-wrapper:first-child .leaflet-control-zoom {
@@ -260,6 +298,9 @@
         }
         .title-icon.humidity {
             background: linear-gradient(135deg, #b48f60 0%, #b6d69f 50%, #5e3a86 100%);
+        }
+        .title-icon.pressure {
+            background: linear-gradient(135deg, #7b68a6 0%, #7cb87c 50%, #c45a4a 100%);
         }
         .info-panel .meta { color: #666; margin-bottom: 8px; line-height: 1.5; }
 
@@ -615,6 +656,19 @@
     <div class="compare-time-display" id="compare-time-display">
         <div class="date" id="compare-date">--</div>
         <div class="time" id="compare-time">--:--</div>
+        <div class="compare-selectors">
+            <select class="compare-type-selector" id="compare-left-type">
+                <option value="temperature">溫度</option>
+                <option value="humidity">濕度</option>
+                <option value="pressure">氣壓</option>
+            </select>
+            <span class="compare-vs">vs</span>
+            <select class="compare-type-selector" id="compare-right-type">
+                <option value="temperature">溫度</option>
+                <option value="humidity" selected>濕度</option>
+                <option value="pressure">氣壓</option>
+            </select>
+        </div>
     </div>
 
     <div class="social-links">
@@ -666,6 +720,7 @@
         <select class="data-type-selector" id="data-type-selector">
             <option value="temperature">溫度 Temperature</option>
             <option value="humidity">濕度 Humidity</option>
+            <option value="pressure">氣壓 Pressure</option>
         </select>
         <div class="meta" id="data-meta">
             <strong>Source:</strong> Central Weather Administration<br>
@@ -735,6 +790,15 @@
             <div class="legend-item"><div class="legend-color" style="background:#5a6fc2"></div> 80 ~ 90% 潮濕</div>
             <div class="legend-item"><div class="legend-color" style="background:#5e3a86"></div> &gt; 90% 極濕</div>
         </div>
+        <div id="legend-pressure" style="display:none;">
+            <h4>Pressure (hPa)</h4>
+            <div class="legend-item"><div class="legend-color" style="background:#7b68a6"></div> &lt; 990 低壓</div>
+            <div class="legend-item"><div class="legend-color" style="background:#5e8bb8"></div> 990 ~ 1000</div>
+            <div class="legend-item"><div class="legend-color" style="background:#7cb87c"></div> 1000 ~ 1010 標準</div>
+            <div class="legend-item"><div class="legend-color" style="background:#b8b85e"></div> 1010 ~ 1020</div>
+            <div class="legend-item"><div class="legend-color" style="background:#d48c4e"></div> 1020 ~ 1030</div>
+            <div class="legend-item"><div class="legend-color" style="background:#c45a4a"></div> &gt; 1030 高壓</div>
+        </div>
     </div>
 
     <div class="hover-info" id="hover-info">
@@ -754,6 +818,8 @@
         // View mode state
         let isCompareMode = false;
         let currentDataType = 'temperature';
+        let compareLeftType = 'temperature';
+        let compareRightType = 'humidity';
 
         // Initialize maps
         const map = L.map('map', { zoomControl: false }).setView([23.7, 121.0], 7);
@@ -805,11 +871,37 @@
             return '#5e3a86';                     // 極濕 (紫色)
         }
 
-        // Get color based on current data type
+        // 氣壓配色 (單位：hPa / 百帕)
+        // 冷色系（藍紫）= 低壓（不穩定），暖色系（紅橙）= 高壓（穩定）
+        function getPressureColor(val) {
+            // 異常低壓 (颱風等級)
+            if (val < 990) return '#5E4FA2';  // 深紫
+            if (val < 1000) return '#3288BD'; // 深藍 (低壓區)
+
+            // 正常範圍
+            if (val < 1008) return '#66C2A5'; // 青綠
+            if (val < 1014) return '#ABDDA4'; // 淺綠 (標準大氣壓附近)
+
+            // 高壓區
+            if (val < 1020) return '#FEE08B'; // 淺黃
+            if (val < 1026) return '#FDAE61'; // 橘黃 (高壓脊)
+
+            // 強高壓 (強烈大陸冷氣團)
+            return '#D53E4F';                 // 深紅
+        }
+
+        // Get color based on data type
+        function getColorByType(value, dataType) {
+            switch (dataType) {
+                case 'humidity': return getHumidityColor(value);
+                case 'pressure': return getPressureColor(value);
+                default: return getTemperatureColor(value);
+            }
+        }
+
+        // Get color based on current data type (for single view)
         function getColor(value) {
-            return currentDataType === 'humidity'
-                ? getHumidityColor(value)
-                : getTemperatureColor(value);
+            return getColorByType(value, currentDataType);
         }
 
         // Time formatting
@@ -869,16 +961,20 @@
 
                 // Compare mode properties
                 this.isCompareMode = false;
-                this.tempData = null;
-                this.humidData = null;
-                this.tempFrames = [];
-                this.humidFrames = [];
-                this.tempRectangles = [];
-                this.humidRectangles = [];
+                this.compareLeftType = 'temperature';
+                this.compareRightType = 'humidity';
+                this.compareDataCache = {}; // Cache loaded data by type
+                this.leftData = null;
+                this.rightData = null;
+                this.leftFrames = [];
+                this.rightFrames = [];
+                this.leftRectangles = [];
+                this.rightRectangles = [];
 
                 this.initControls();
                 this.initDataTypeSelector();
                 this.initViewToggle();
+                this.initCompareTypeSelectors();
             }
 
             initViewToggle() {
@@ -897,11 +993,140 @@
                 });
             }
 
+            initCompareTypeSelectors() {
+                const leftSelector = document.getElementById('compare-left-type');
+                const rightSelector = document.getElementById('compare-right-type');
+
+                leftSelector.addEventListener('change', async (e) => {
+                    if (!this.isCompareMode) return;
+                    const newType = e.target.value;
+                    if (newType !== this.compareLeftType) {
+                        this.compareLeftType = newType;
+                        compareLeftType = newType;
+                        await this.reloadCompareData();
+                    }
+                });
+
+                rightSelector.addEventListener('change', async (e) => {
+                    if (!this.isCompareMode) return;
+                    const newType = e.target.value;
+                    if (newType !== this.compareRightType) {
+                        this.compareRightType = newType;
+                        compareRightType = newType;
+                        await this.reloadCompareData();
+                    }
+                });
+            }
+
+            async reloadCompareData() {
+                this.pause();
+
+                // Show loading
+                const loadingEl = document.getElementById('loading');
+                const progressEl = document.getElementById('loading-progress');
+                const textEl = document.getElementById('loading-text');
+                loadingEl.style.display = 'block';
+                progressEl.style.width = '0%';
+                textEl.textContent = 'Reloading compare data...';
+
+                // Clear existing grids
+                this.clearCompareGrids();
+
+                // Load and render new data
+                await this.loadCompareData();
+
+                // Update map labels
+                this.updateCompareLabels();
+
+                loadingEl.style.display = 'none';
+            }
+
+            getDataFileName(dataType) {
+                switch (dataType) {
+                    case 'humidity': return 'humidity_timelapse_data.json';
+                    case 'pressure': return 'pressure_timelapse_data.json';
+                    default: return 'temperature_timelapse_data.json';
+                }
+            }
+
+            getDataTypeLabel(dataType) {
+                switch (dataType) {
+                    case 'humidity': return { icon: '💧', name: '濕度 Humidity', className: 'humidity' };
+                    case 'pressure': return { icon: '🌡️', name: '氣壓 Pressure', className: 'pressure' };
+                    default: return { icon: '🌡️', name: '溫度 Temperature', className: 'temperature' };
+                }
+            }
+
+            updateCompareLabels() {
+                const leftLabel = this.getDataTypeLabel(this.compareLeftType);
+                const rightLabel = this.getDataTypeLabel(this.compareRightType);
+
+                // Update map labels
+                const leftMapLabel = document.querySelector('#map-container .map-wrapper:first-child .map-label');
+                const rightMapLabel = document.querySelector('#map-container .map-wrapper:last-child .map-label');
+
+                leftMapLabel.className = `map-label ${leftLabel.className}`;
+                leftMapLabel.textContent = `${leftLabel.icon} ${leftLabel.name}`;
+
+                rightMapLabel.className = `map-label ${rightLabel.className}`;
+                rightMapLabel.textContent = `${rightLabel.icon} ${rightLabel.name}`;
+
+                // Update compare legends
+                this.updateCompareLegend('left', this.compareLeftType);
+                this.updateCompareLegend('right', this.compareRightType);
+            }
+
+            updateCompareLegend(side, dataType) {
+                const legendContainer = side === 'left'
+                    ? document.querySelector('#map-container .map-wrapper:first-child .compare-legend')
+                    : document.querySelector('#map-container .map-wrapper:last-child .compare-legend');
+
+                let legendHTML = '';
+                switch (dataType) {
+                    case 'humidity':
+                        legendHTML = `
+                            <h5>濕度 (%)</h5>
+                            <div class="legend-item"><div class="legend-color" style="background:#b48f60"></div>&lt;40%</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#b6d69f"></div>60-70%</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#64b6e1"></div>70-80%</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#5a6fc2"></div>80-90%</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#5e3a86"></div>&gt;90%</div>
+                        `;
+                        break;
+                    case 'pressure':
+                        legendHTML = `
+                            <h5>氣壓 (hPa)</h5>
+                            <div class="legend-item"><div class="legend-color" style="background:#5E4FA2"></div>&lt;990 低壓</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#3288BD"></div>990-1000</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#66C2A5"></div>1000-1008</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#ABDDA4"></div>1008-1014</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#FEE08B"></div>1014-1020</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#FDAE61"></div>1020-1026</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#D53E4F"></div>&gt;1026 高壓</div>
+                        `;
+                        break;
+                    default: // temperature
+                        legendHTML = `
+                            <h5>溫度 (°C)</h5>
+                            <div class="legend-item"><div class="legend-color" style="background:#313695"></div>&lt;0°</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#74add1"></div>5-10°</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#fee090"></div>15-18°</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div>20-25°</div>
+                            <div class="legend-item"><div class="legend-color" style="background:#d73027"></div>&gt;25°</div>
+                        `;
+                }
+                legendContainer.innerHTML = legendHTML;
+            }
+
             async enterCompareMode() {
                 this.pause();
                 this.isCompareMode = true;
                 isCompareMode = true;
                 document.getElementById('map-container').classList.add('compare-mode');
+
+                // Sync selectors with current state
+                document.getElementById('compare-left-type').value = this.compareLeftType;
+                document.getElementById('compare-right-type').value = this.compareRightType;
 
                 // Hide single view controls, show compare time display
                 document.getElementById('data-type-selector').style.display = 'none';
@@ -923,6 +1148,9 @@
 
                 // Load both datasets
                 await this.loadCompareData();
+
+                // Update map labels and legends
+                this.updateCompareLabels();
 
                 // Invalidate map sizes and center on Taiwan
                 setTimeout(() => {
@@ -971,31 +1199,31 @@
             }
 
             clearCompareGrids() {
-                for (const rect of this.tempRectangles) {
+                for (const rect of this.leftRectangles) {
                     map.removeLayer(rect);
                 }
-                for (const rect of this.humidRectangles) {
+                for (const rect of this.rightRectangles) {
                     map2.removeLayer(rect);
                 }
-                this.tempRectangles = [];
-                this.humidRectangles = [];
+                this.leftRectangles = [];
+                this.rightRectangles = [];
             }
 
             async loadCompareData() {
                 const progressEl = document.getElementById('loading-progress');
                 const textEl = document.getElementById('loading-text');
 
-                // Load temperature data
-                textEl.textContent = 'Loading temperature data...';
+                // Load left side data
+                const leftLabel = this.getDataTypeLabel(this.compareLeftType);
+                textEl.textContent = `Loading ${leftLabel.name}...`;
                 progressEl.style.width = '25%';
-                const tempResponse = await fetch('temperature_timelapse_data.json');
-                this.tempData = await tempResponse.json();
+                this.leftData = await this.loadDataByType(this.compareLeftType);
 
-                // Load humidity data
-                textEl.textContent = 'Loading humidity data...';
+                // Load right side data
+                const rightLabel = this.getDataTypeLabel(this.compareRightType);
+                textEl.textContent = `Loading ${rightLabel.name}...`;
                 progressEl.style.width = '50%';
-                const humidResponse = await fetch('humidity_timelapse_data.json');
-                this.humidData = await humidResponse.json();
+                this.rightData = await this.loadDataByType(this.compareRightType);
 
                 // Filter and align frames by time
                 textEl.textContent = 'Processing data...';
@@ -1012,7 +1240,37 @@
                 progressEl.style.width = '100%';
             }
 
+            async loadDataByType(dataType) {
+                // Check cache first
+                if (this.compareDataCache[dataType]) {
+                    return this.compareDataCache[dataType];
+                }
+
+                const fileName = this.getDataFileName(dataType);
+                try {
+                    const response = await fetch(fileName);
+                    if (!response.ok) {
+                        console.warn(`Cannot load ${dataType} data, file may not exist`);
+                        return null;
+                    }
+                    const data = await response.json();
+                    this.compareDataCache[dataType] = data;
+                    return data;
+                } catch (error) {
+                    console.warn(`Error loading ${dataType} data:`, error);
+                    return null;
+                }
+            }
+
             alignCompareFrames() {
+                // Handle case where data is not available
+                if (!this.leftData || !this.rightData) {
+                    console.warn('One or both data sources not available');
+                    this.leftFrames = [];
+                    this.rightFrames = [];
+                    return;
+                }
+
                 // Apply same 30-day filter as single view
                 const startDate = new Date('2025-12-27T00:00:00');
                 const now = new Date();
@@ -1022,128 +1280,132 @@
                 const cutoffDate = startDate > thirtyDaysAgo ? startDate : thirtyDaysAgo;
 
                 // Create time-indexed maps with filtered data
-                const tempByTime = new Map();
-                const humidByTime = new Map();
+                const leftByTime = new Map();
+                const rightByTime = new Map();
 
-                for (const frame of this.tempData.frames) {
+                for (const frame of this.leftData.frames) {
                     const frameDate = new Date(frame.time);
                     if (frameDate >= cutoffDate) {
                         const timeKey = frame.time.substring(0, 16); // YYYY-MM-DDTHH:MM
-                        tempByTime.set(timeKey, frame);
+                        leftByTime.set(timeKey, frame);
                     }
                 }
 
-                for (const frame of this.humidData.frames) {
+                for (const frame of this.rightData.frames) {
                     const frameDate = new Date(frame.time);
                     if (frameDate >= cutoffDate) {
                         const timeKey = frame.time.substring(0, 16);
-                        humidByTime.set(timeKey, frame);
+                        rightByTime.set(timeKey, frame);
                     }
                 }
 
                 // Find common times
-                this.tempFrames = [];
-                this.humidFrames = [];
+                this.leftFrames = [];
+                this.rightFrames = [];
 
-                for (const [timeKey, tempFrame] of tempByTime) {
-                    if (humidByTime.has(timeKey)) {
-                        this.tempFrames.push(tempFrame);
-                        this.humidFrames.push(humidByTime.get(timeKey));
+                for (const [timeKey, leftFrame] of leftByTime) {
+                    if (rightByTime.has(timeKey)) {
+                        this.leftFrames.push(leftFrame);
+                        this.rightFrames.push(rightByTime.get(timeKey));
                     }
                 }
 
                 // Sort by time
-                this.tempFrames.sort((a, b) => new Date(a.time) - new Date(b.time));
-                this.humidFrames.sort((a, b) => new Date(a.time) - new Date(b.time));
+                this.leftFrames.sort((a, b) => new Date(a.time) - new Date(b.time));
+                this.rightFrames.sort((a, b) => new Date(a.time) - new Date(b.time));
 
                 // Update timeline
-                if (this.tempFrames.length > 0) {
-                    document.getElementById('start-time').textContent = formatTime(this.tempFrames[0].time);
-                    document.getElementById('end-time').textContent = formatTime(this.tempFrames[this.tempFrames.length - 1].time);
-                    document.getElementById('timeline').max = this.tempFrames.length - 1;
-                    this.currentIndex = Math.min(this.currentIndex, this.tempFrames.length - 1);
+                if (this.leftFrames.length > 0) {
+                    document.getElementById('start-time').textContent = formatTime(this.leftFrames[0].time);
+                    document.getElementById('end-time').textContent = formatTime(this.leftFrames[this.leftFrames.length - 1].time);
+                    document.getElementById('timeline').max = this.leftFrames.length - 1;
+                    this.currentIndex = Math.min(this.currentIndex, this.leftFrames.length - 1);
                 }
             }
 
             createCompareGrids() {
-                const tempGeo = this.tempData.metadata.geo_info;
-                const humidGeo = this.humidData.metadata.geo_info;
-                const resolution = tempGeo.resolution_deg || 0.03;
+                if (!this.leftData || !this.rightData) return;
 
-                // Create temperature grid on map1
-                if (this.tempFrames.length > 0) {
-                    const firstFrame = this.tempFrames[0];
+                const leftGeo = this.leftData.metadata.geo_info;
+                const rightGeo = this.rightData.metadata.geo_info;
+                const resolution = leftGeo.resolution_deg || 0.03;
+
+                // Create left side grid on map1
+                if (this.leftFrames.length > 0) {
+                    const firstFrame = this.leftFrames[0];
                     for (let row = 0; row < firstFrame.data.length; row++) {
                         for (let col = 0; col < firstFrame.data[row].length; col++) {
                             const val = firstFrame.data[row][col];
                             if (val === null || val < -900) continue;
 
-                            const lat = tempGeo.bottom_left_lat + row * resolution;
-                            const lon = tempGeo.bottom_left_lon + col * resolution;
+                            const lat = leftGeo.bottom_left_lat + row * resolution;
+                            const lon = leftGeo.bottom_left_lon + col * resolution;
                             const bounds = [
                                 [lat - resolution/2, lon - resolution/2],
                                 [lat + resolution/2, lon + resolution/2]
                             ];
 
+                            const color = getColorByType(val, this.compareLeftType);
                             const rect = L.rectangle(bounds, {
-                                color: getTemperatureColor(val),
-                                fillColor: getTemperatureColor(val),
+                                color: color,
+                                fillColor: color,
                                 fillOpacity: 0.7,
                                 weight: 0
                             }).addTo(map);
 
                             rect._gridRow = row;
                             rect._gridCol = col;
-                            this.tempRectangles.push(rect);
+                            this.leftRectangles.push(rect);
                         }
                     }
                 }
 
-                // Create humidity grid on map2
-                if (this.humidFrames.length > 0) {
-                    const firstFrame = this.humidFrames[0];
+                // Create right side grid on map2
+                if (this.rightFrames.length > 0) {
+                    const firstFrame = this.rightFrames[0];
                     for (let row = 0; row < firstFrame.data.length; row++) {
                         for (let col = 0; col < firstFrame.data[row].length; col++) {
                             const val = firstFrame.data[row][col];
                             if (val === null || val < -900) continue;
 
-                            const lat = humidGeo.bottom_left_lat + row * resolution;
-                            const lon = humidGeo.bottom_left_lon + col * resolution;
+                            const lat = rightGeo.bottom_left_lat + row * resolution;
+                            const lon = rightGeo.bottom_left_lon + col * resolution;
                             const bounds = [
                                 [lat - resolution/2, lon - resolution/2],
                                 [lat + resolution/2, lon + resolution/2]
                             ];
 
+                            const color = getColorByType(val, this.compareRightType);
                             const rect = L.rectangle(bounds, {
-                                color: getHumidityColor(val),
-                                fillColor: getHumidityColor(val),
+                                color: color,
+                                fillColor: color,
                                 fillOpacity: 0.7,
                                 weight: 0
                             }).addTo(map2);
 
                             rect._gridRow = row;
                             rect._gridCol = col;
-                            this.humidRectangles.push(rect);
+                            this.rightRectangles.push(rect);
                         }
                     }
                 }
             }
 
             renderCompareFrame(index) {
-                if (index < 0 || index >= this.tempFrames.length) return;
+                if (index < 0 || index >= this.leftFrames.length) return;
 
                 this.currentIndex = index;
-                const tempFrame = this.tempFrames[index];
-                const humidFrame = this.humidFrames[index];
+                const leftFrame = this.leftFrames[index];
+                const rightFrame = this.rightFrames[index];
 
-                // Update temperature grid
-                for (const rect of this.tempRectangles) {
+                // Update left side grid
+                for (const rect of this.leftRectangles) {
                     const row = rect._gridRow;
                     const col = rect._gridCol;
-                    if (tempFrame.data[row] && tempFrame.data[row][col] !== undefined) {
-                        const val = tempFrame.data[row][col];
+                    if (leftFrame.data[row] && leftFrame.data[row][col] !== undefined) {
+                        const val = leftFrame.data[row][col];
                         if (val !== null && val > -900) {
-                            const color = getTemperatureColor(val);
+                            const color = getColorByType(val, this.compareLeftType);
                             rect.setStyle({ color, fillColor: color, opacity: 1, fillOpacity: 0.7 });
                         } else {
                             rect.setStyle({ opacity: 0, fillOpacity: 0 });
@@ -1151,14 +1413,14 @@
                     }
                 }
 
-                // Update humidity grid
-                for (const rect of this.humidRectangles) {
+                // Update right side grid
+                for (const rect of this.rightRectangles) {
                     const row = rect._gridRow;
                     const col = rect._gridCol;
-                    if (humidFrame.data[row] && humidFrame.data[row][col] !== undefined) {
-                        const val = humidFrame.data[row][col];
+                    if (rightFrame.data[row] && rightFrame.data[row][col] !== undefined) {
+                        const val = rightFrame.data[row][col];
                         if (val !== null && val > -900) {
-                            const color = getHumidityColor(val);
+                            const color = getColorByType(val, this.compareRightType);
                             rect.setStyle({ color, fillColor: color, opacity: 1, fillOpacity: 0.7 });
                         } else {
                             rect.setStyle({ opacity: 0, fillOpacity: 0 });
@@ -1167,8 +1429,8 @@
                 }
 
                 // Update UI with date and time
-                const dateStr = formatDateDisplay(tempFrame.time);
-                const timeStr = formatTimeDisplay(tempFrame.time);
+                const dateStr = formatDateDisplay(leftFrame.time);
+                const timeStr = formatTimeDisplay(leftFrame.time);
                 document.getElementById('current-time').textContent = `${dateStr} ${timeStr}`;
                 document.getElementById('timeline').value = index;
 
@@ -1176,7 +1438,7 @@
                 const compareTimeDisplay = document.getElementById('compare-time-display');
                 document.getElementById('compare-date').textContent = dateStr;
                 document.getElementById('compare-time').textContent = timeStr;
-                const isDay = isDaytime(tempFrame.time);
+                const isDay = isDaytime(leftFrame.time);
                 compareTimeDisplay.className = 'compare-time-display' + (isDay ? '' : ' night');
             }
 
@@ -1219,7 +1481,13 @@
                 const dataMeta = document.getElementById('data-meta');
                 const legendTemp = document.getElementById('legend-temperature');
                 const legendHumid = document.getElementById('legend-humidity');
+                const legendPressure = document.getElementById('legend-pressure');
                 const chartTitle = document.querySelector('.temp-chart h4');
+
+                // Hide all legends first
+                legendTemp.style.display = 'none';
+                legendHumid.style.display = 'none';
+                legendPressure.style.display = 'none';
 
                 if (dataType === 'humidity') {
                     titleIcon.className = 'title-icon humidity';
@@ -1229,9 +1497,18 @@
                         <strong>Data:</strong> Weather Stations (Interpolated)<br>
                         <strong>Method:</strong> scipy.griddata cubic
                     `;
-                    legendTemp.style.display = 'none';
                     legendHumid.style.display = 'block';
                     chartTitle.textContent = 'Average Humidity Trend';
+                } else if (dataType === 'pressure') {
+                    titleIcon.className = 'title-icon pressure';
+                    panelTitle.textContent = '台灣氣壓變化';
+                    dataMeta.innerHTML = `
+                        <strong>Source:</strong> Central Weather Administration<br>
+                        <strong>Data:</strong> Weather Stations (Interpolated)<br>
+                        <strong>Method:</strong> scipy.griddata cubic
+                    `;
+                    legendPressure.style.display = 'block';
+                    chartTitle.textContent = 'Average Pressure Trend';
                 } else {
                     titleIcon.className = 'title-icon temperature';
                     panelTitle.textContent = '台灣溫度變化';
@@ -1241,7 +1518,6 @@
                         <strong>Resolution:</strong> 0.03° (~3.3 km)
                     `;
                     legendTemp.style.display = 'block';
-                    legendHumid.style.display = 'none';
                     chartTitle.textContent = 'Average Temperature Trend';
                 }
             }
@@ -1264,13 +1540,13 @@
 
                 document.getElementById('btn-prev').addEventListener('click', () => {
                     this.pause();
-                    const maxIndex = this.isCompareMode ? this.tempFrames.length - 1 : this.frames.length - 1;
+                    const maxIndex = this.isCompareMode ? this.leftFrames.length - 1 : this.frames.length - 1;
                     this.seekTo(Math.max(0, this.currentIndex - 1));
                 });
 
                 document.getElementById('btn-next').addEventListener('click', () => {
                     this.pause();
-                    const maxIndex = this.isCompareMode ? this.tempFrames.length - 1 : this.frames.length - 1;
+                    const maxIndex = this.isCompareMode ? this.leftFrames.length - 1 : this.frames.length - 1;
                     this.seekTo(Math.min(maxIndex, this.currentIndex + 1));
                 });
 
@@ -1293,9 +1569,12 @@
                 const progressEl = document.getElementById('loading-progress');
                 const textEl = document.getElementById('loading-text');
 
-                const dataFile = dataType === 'humidity'
-                    ? 'humidity_timelapse_data.json'
-                    : 'temperature_timelapse_data.json';
+                let dataFile;
+                switch (dataType) {
+                    case 'humidity': dataFile = 'humidity_timelapse_data.json'; break;
+                    case 'pressure': dataFile = 'pressure_timelapse_data.json'; break;
+                    default: dataFile = 'temperature_timelapse_data.json';
+                }
 
                 try {
                     textEl.textContent = `Downloading ${dataType} data...`;
@@ -1400,8 +1679,9 @@
                             const currentValue = this._currentValue;
                             if (currentValue !== null && currentValue > -900) {
                                 hoverInfo.classList.add('active');
-                                const unit = self.dataType === 'humidity' ? '%' : '°C';
-                                hoverTemp.textContent = currentValue.toFixed(1) + unit;
+                                const unit = self.dataType === 'humidity' ? '%' : (self.dataType === 'pressure' ? 'hPa' : '°C');
+                                const decimals = self.dataType === 'pressure' ? 0 : 1;
+                                hoverTemp.textContent = currentValue.toFixed(decimals) + unit;
                                 hoverCoords.textContent = lat.toFixed(2) + '°N, ' + lon.toFixed(2) + '°E';
                             }
                         });
@@ -1417,8 +1697,9 @@
                             const currentValue = this._currentValue;
                             if (currentValue !== null && currentValue > -900) {
                                 hoverInfo.classList.add('active');
-                                const unit = self.dataType === 'humidity' ? '%' : '°C';
-                                hoverTemp.textContent = currentValue.toFixed(1) + unit;
+                                const unit = self.dataType === 'humidity' ? '%' : (self.dataType === 'pressure' ? 'hPa' : '°C');
+                                const decimals = self.dataType === 'pressure' ? 0 : 1;
+                                hoverTemp.textContent = currentValue.toFixed(decimals) + unit;
                                 hoverCoords.textContent = lat.toFixed(2) + '°N, ' + lon.toFixed(2) + '°E';
                             }
                         });
@@ -1436,7 +1717,7 @@
                 this.valueMin = Math.floor(Math.min(...this.avgValues) - 2);
                 this.valueMax = Math.ceil(Math.max(...this.avgValues) + 2);
 
-                // Adjust range for humidity (0-100%)
+                // Adjust range for humidity (0-100%) and pressure
                 if (this.dataType === 'humidity') {
                     this.valueMin = Math.max(0, this.valueMin);
                     this.valueMax = Math.min(100, this.valueMax);
@@ -1444,7 +1725,7 @@
 
                 document.getElementById('chart-start').textContent = formatTime(this.frames[0].time);
                 document.getElementById('chart-end').textContent = formatTime(this.frames[this.frames.length - 1].time);
-                const unit = this.dataType === 'humidity' ? '%' : '°';
+                const unit = this.dataType === 'humidity' ? '%' : (this.dataType === 'pressure' ? 'hPa' : '°');
                 document.getElementById('chart-temp-range').textContent = `${this.valueMin}${unit} ~ ${this.valueMax}${unit}`;
 
                 this.chartCanvas = document.getElementById('chart-canvas');
@@ -1553,13 +1834,14 @@
                 document.getElementById('timeline').value = index;
 
                 if (frame.stats) {
-                    const unit = this.dataType === 'humidity' ? '%' : '°';
+                    const unit = this.dataType === 'humidity' ? '%' : (this.dataType === 'pressure' ? 'hPa' : '°');
+                    const decimalPlaces = this.dataType === 'pressure' ? 0 : 1;
                     document.getElementById('stat-min').textContent =
-                        frame.stats.min !== null ? frame.stats.min.toFixed(1) + unit : '--';
+                        frame.stats.min !== null ? frame.stats.min.toFixed(decimalPlaces) + unit : '--';
                     document.getElementById('stat-max').textContent =
-                        frame.stats.max !== null ? frame.stats.max.toFixed(1) + unit : '--';
+                        frame.stats.max !== null ? frame.stats.max.toFixed(decimalPlaces) + unit : '--';
                     document.getElementById('stat-avg').textContent =
-                        frame.stats.avg !== null ? frame.stats.avg.toFixed(1) + unit : '--';
+                        frame.stats.avg !== null ? frame.stats.avg.toFixed(decimalPlaces) + unit : '--';
                     document.getElementById('stat-points').textContent =
                         frame.stats.valid_points ? frame.stats.valid_points.toLocaleString() : '--';
                 }
@@ -1568,9 +1850,10 @@
                 const isDay = isDaytime(frame.time);
                 datetimeDisplay.className = 'datetime-display' + (isDay ? '' : ' night');
                 // 更新手機版平均值顯示
-                const mobileUnit = this.dataType === 'humidity' ? '%' : '°';
+                const mobileUnit = this.dataType === 'humidity' ? '%' : (this.dataType === 'pressure' ? 'hPa' : '°');
+                const mobileDecimals = this.dataType === 'pressure' ? 0 : 1;
                 document.querySelector('.info-panel').dataset.avg =
-                    frame.stats?.avg !== null ? frame.stats.avg.toFixed(1) + mobileUnit : '--';
+                    frame.stats?.avg !== null ? frame.stats.avg.toFixed(mobileDecimals) + mobileUnit : '--';
                 document.getElementById('display-date').textContent = formatDateDisplay(frame.time);
                 document.getElementById('display-time').textContent = formatTimeDisplay(frame.time);
                 document.getElementById('day-night-icon').textContent = isDay ? '☀️' : '🌙';
@@ -1580,7 +1863,7 @@
             }
 
             play() {
-                const framesLength = this.isCompareMode ? this.tempFrames.length : this.frames.length;
+                const framesLength = this.isCompareMode ? this.leftFrames.length : this.frames.length;
                 if (framesLength === 0) return;
 
                 this.isPlaying = true;
