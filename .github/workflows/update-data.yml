@@ -13,8 +13,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   update-data:
@@ -89,25 +87,3 @@ jobs:
           git add public/temperature_timelapse_data.json public/humidity_timelapse_data.json public/pressure_timelapse_data.json
           git commit -m "chore: update weather data $(date +'%Y-%m-%d')"
           git push
-
-  deploy:
-    needs: update-data
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main  # Get the latest changes
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: 'public'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

@@ -112,7 +112,6 @@ grid_data = griddata(points, values, (grid_lon, grid_lat), method='cubic')
 ```
 taiwan-weather-timelapse/
 ├── .github/workflows/
-│   ├── deploy.yml                # GitHub Pages 部署
 │   └── update-data.yml           # 每日資料自動更新
 ├── public/
 │   ├── index.html                # 主視覺化頁面
