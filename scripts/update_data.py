@@ -2,180 +2,149 @@
 """
 Taiwan Temperature Timelapse - Data Update Script
 
-Downloads temperature grid data from S3 and generates the timelapse JSON file.
-This script is designed to run standalone without external dependencies.
+Reads hourly temperature grid data from the gis-platform Supabase database
+(realtime.temperature_grids) via its PostgREST RPC functions and generates the
+timelapse JSON file consumed by the frontend.
+
+Data source migration (2026-05):
+    Previously this script read per-file objects from S3
+    (temperature/YYYY/MM/DD/temperature_HHMM.json). On 2026-02-28 the
+    data-collectors project switched to "local storage + daily tar.gz archive"
+    and stopped uploading per-file objects to S3, so that path went stale.
+    The canonical live source is now gis-platform's Supabase DB, exposed through
+    the get_temperature_* RPC functions (see gis-platform
+    migrations/020_temperature_rpc.sql).
 
 Usage:
-    # Using .env file in project root
-    python scripts/update_data.py
-
-    # Specify custom .env path
-    python scripts/update_data.py --env-file /path/to/.env
+    # Using .env file in project root (SUPABASE_URL / SUPABASE_KEY)
+    python3 scripts/update_data.py
 
     # Limit to recent days
-    python scripts/update_data.py --days 7
+    python3 scripts/update_data.py --days 30
 
     # Specify date range
-    python scripts/update_data.py --start-date 2025-01-10 --end-date 2025-01-15
+    python3 scripts/update_data.py --start-date 2026-05-10 --end-date 2026-05-20
 """
 
 import json
 import argparse
 import os
 import sys
+import urllib.request
+import urllib.error
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
-
-# Try to load dotenv
-try:
-    from dotenv import load_dotenv
-    HAS_DOTENV = True
-except ImportError:
-    HAS_DOTENV = False
-
-# Try to load boto3
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-    HAS_BOTO3 = True
-except ImportError:
-    HAS_BOTO3 = False
-
+from datetime import datetime, timedelta, timezone
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
 PUBLIC_DIR = PROJECT_ROOT / 'public'
 OUTPUT_FILE = PUBLIC_DIR / 'temperature_timelapse_data.json'
 
+# Fixed grid geometry (kept identical to the original S3 dataset so the frontend
+# renders the same grid / map bounds). The land cells returned by gis-platform
+# all fall inside these bounds.
+GEO_INFO = {
+    'bottom_left_lon': 120.0,
+    'bottom_left_lat': 21.88,
+    'top_right_lon': 121.98,
+    'top_right_lat': 25.45,
+    'resolution_deg': 0.03,
+    'resolution_km': 3.3,
+}
 
-def load_env_file(env_path: Path) -> Dict[str, str]:
-    """Load environment variables from .env file"""
-    if HAS_DOTENV:
-        load_dotenv(env_path)
-    else:
-        # Manual .env parsing
-        if env_path.exists():
-            with open(env_path, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        os.environ[key.strip()] = value.strip().strip('"\'')
-
-    return {
-        'S3_BUCKET': os.getenv('S3_BUCKET'),
-        'S3_ACCESS_KEY': os.getenv('S3_ACCESS_KEY'),
-        'S3_SECRET_KEY': os.getenv('S3_SECRET_KEY'),
-        'S3_REGION': os.getenv('S3_REGION', 'ap-northeast-1'),
-        'S3_ENDPOINT': os.getenv('S3_ENDPOINT'),
-    }
+TAIPEI_TZ = timezone(timedelta(hours=8))
 
 
-class S3TemperatureReader:
-    """S3 Temperature Data Reader"""
+def load_env_file(env_path: Path) -> None:
+    """Load environment variables from a .env file (simple parser)."""
+    if not env_path.exists():
+        return
+    with open(env_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"\''))
 
-    def __init__(self, config: Dict[str, str]):
-        if not HAS_BOTO3:
-            raise ImportError("boto3 is required. Install with: pip install boto3")
 
-        if not config.get('S3_BUCKET'):
-            raise ValueError("S3_BUCKET is not configured")
+class GisPlatformReader:
+    """Reads temperature grid data from gis-platform via Supabase PostgREST RPC."""
 
-        client_kwargs = {
-            'region_name': config.get('S3_REGION', 'ap-northeast-1'),
-        }
+    def __init__(self, base_url: str, api_key: str):
+        if not base_url:
+            raise ValueError("SUPABASE_URL is not configured")
+        if not api_key:
+            raise ValueError("SUPABASE_KEY is not configured")
+        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
 
-        if config.get('S3_ACCESS_KEY') and config.get('S3_SECRET_KEY'):
-            client_kwargs['aws_access_key_id'] = config['S3_ACCESS_KEY']
-            client_kwargs['aws_secret_access_key'] = config['S3_SECRET_KEY']
-
-        if config.get('S3_ENDPOINT'):
-            client_kwargs['endpoint_url'] = config['S3_ENDPOINT']
-
-        self.s3 = boto3.client('s3', **client_kwargs)
-        self.bucket = config['S3_BUCKET']
-
-    def list_dates(self) -> List[str]:
-        """List all dates with temperature data"""
-        dates = set()
-        prefix = "temperature/"
-        paginator = self.s3.get_paginator('list_objects_v2')
-
+    def rpc(self, fn: str, body: dict | None = None):
+        url = f"{self.base_url}/rest/v1/rpc/{fn}"
+        data = json.dumps(body or {}).encode('utf-8')
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                'apikey': self.api_key,
+                'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json',
+            },
+            method='POST',
+        )
         try:
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix, Delimiter='/'):
-                for cp in page.get('CommonPrefixes', []):
-                    year_prefix = cp['Prefix']
-                    for month_page in paginator.paginate(Bucket=self.bucket, Prefix=year_prefix, Delimiter='/'):
-                        for month_cp in month_page.get('CommonPrefixes', []):
-                            month_prefix = month_cp['Prefix']
-                            for day_page in paginator.paginate(Bucket=self.bucket, Prefix=month_prefix, Delimiter='/'):
-                                for day_cp in day_page.get('CommonPrefixes', []):
-                                    parts = day_cp['Prefix'].rstrip('/').split('/')
-                                    if len(parts) >= 4:
-                                        date_str = f"{parts[1]}-{parts[2]}-{parts[3]}"
-                                        dates.add(date_str)
-        except ClientError as e:
-            print(f"Error listing S3 data: {e}")
-            return []
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode('utf-8', 'replace')
+            raise RuntimeError(f"RPC {fn} failed: HTTP {e.code} {detail}") from e
 
-        return sorted(dates)
+    def list_dates(self) -> list[str]:
+        rows = self.rpc('get_temperature_dates')
+        return [r['date'] for r in rows]
 
-    def list_files_by_date(self, date: str) -> List[Dict[str, Any]]:
-        """List all temperature files for a specific date"""
-        try:
-            parsed_date = datetime.strptime(date, '%Y-%m-%d')
-            prefix = f"temperature/{parsed_date.strftime('%Y/%m/%d')}/"
-        except ValueError:
-            return []
+    def grid_info(self, date: str) -> list[tuple[float, float]]:
+        rows = self.rpc('get_temperature_grid_info', {'target_date': date})
+        return [(r['grid_lat'], r['grid_lng']) for r in rows]
 
-        files = []
-        paginator = self.s3.get_paginator('list_objects_v2')
+    def frames(self, date: str) -> list[dict]:
+        return self.rpc('get_temperature_frames', {'target_date': date})
 
-        try:
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
-                for obj in page.get('Contents', []):
-                    key = obj['Key']
-                    if key.endswith('.json') and 'latest' not in key:
-                        filename = key.split('/')[-1]
-                        if filename.startswith('temperature_'):
-                            time_str = filename.replace('temperature_', '').replace('.json', '')
-                            if len(time_str) == 4:
-                                hour = time_str[:2]
-                                minute = time_str[2:]
-                                files.append({
-                                    'key': key,
-                                    'time': f"{date}T{hour}:{minute}:00+08:00",
-                                    'size': obj['Size']
-                                })
-        except ClientError as e:
-            print(f"Error listing files for {date}: {e}")
 
-        return sorted(files, key=lambda x: x['time'])
+def _to_taipei_iso(observed_at: str) -> str:
+    """Convert an RPC timestamp (ISO 8601, any tz) to Asia/Taipei +08:00 ISO."""
+    # Python's fromisoformat handles the "+00:00" / "+08:00" offsets returned.
+    dt = datetime.fromisoformat(observed_at)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TAIPEI_TZ).isoformat()
 
-    def get_json(self, s3_key: str) -> Optional[Dict]:
-        """Read JSON file from S3"""
-        try:
-            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
-            content = response['Body'].read().decode('utf-8')
-            return json.loads(content)
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
-                return None
-            print(f"Error reading {s3_key}: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            print(f"JSON parse error for {s3_key}: {e}")
-            return None
+
+def _build_grid(cells: list[tuple[float, float]], temps: list[float]):
+    """Reconstruct the dense [rows][cols] grid from aligned (lat,lng) + temp lists."""
+    res = GEO_INFO['resolution_deg']
+    bl_lat = GEO_INFO['bottom_left_lat']
+    bl_lon = GEO_INFO['bottom_left_lon']
+    n_rows = round((GEO_INFO['top_right_lat'] - bl_lat) / res) + 1
+    n_cols = round((GEO_INFO['top_right_lon'] - bl_lon) / res) + 1
+
+    grid = [[None] * n_cols for _ in range(n_rows)]
+    valid = []
+    for (lat, lng), temp in zip(cells, temps):
+        row = round((lat - bl_lat) / res)
+        col = round((lng - bl_lon) / res)
+        if 0 <= row < n_rows and 0 <= col < n_cols:
+            grid[row][col] = temp
+            valid.append(temp)
+    return grid, valid
 
 
 def download_temperature_data(
-    reader: S3TemperatureReader,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    max_frames: int = 720
-) -> List[Dict]:
-    """Download temperature data from S3"""
+    reader: GisPlatformReader,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    max_frames: int = 720,
+) -> list[dict]:
+    """Fetch and reconstruct temperature frames from gis-platform."""
     print("Listing available dates...")
     all_dates = reader.list_dates()
 
@@ -185,7 +154,6 @@ def download_temperature_data(
 
     print(f"  Found {len(all_dates)} dates ({all_dates[0]} ~ {all_dates[-1]})")
 
-    # Filter date range
     if start_date:
         all_dates = [d for d in all_dates if d >= start_date]
     if end_date:
@@ -197,231 +165,144 @@ def download_temperature_data(
 
     print(f"  Processing {len(all_dates)} dates")
 
-    # Collect all files
-    all_files = []
+    frames: list[dict] = []
+    skipped = 0
+
     for date in all_dates:
-        files = reader.list_files_by_date(date)
-        all_files.extend(files)
+        cells = reader.grid_info(date)
+        n_cells = len(cells)
+        day_frames = reader.frames(date)
 
-    print(f"  Total {len(all_files)} temperature files")
+        for fr in day_frames:
+            # Alignment contract (gis-platform migrations/020_temperature_rpc.sql):
+            # grid_info is the day's DISTINCT cell union, ordered by lat,lng;
+            # a frame's `temps` is ordered the same way over the cells present at
+            # that timestamp. When cell_count == len(union) the frame covers the
+            # full union, so positions align 1:1 and reconstruction is exact.
+            # Partial/duplicate frames (e.g. double inserts -> 2x cell_count) are
+            # skipped rather than risk misaligned placement.
+            if fr['cell_count'] != n_cells:
+                skipped += 1
+                continue
 
-    # Limit frames
-    if len(all_files) > max_frames:
-        print(f"  Limiting to latest {max_frames} frames")
-        all_files = all_files[-max_frames:]
+            temps = [float(x) for x in fr['temps'].split(',')]
+            grid, valid = _build_grid(cells, temps)
+            if not valid:
+                skipped += 1
+                continue
 
-    # Download data
-    frames = []
-    total = len(all_files)
-
-    print(f"Downloading temperature data ({total} files)...")
-
-    for i, file_info in enumerate(all_files):
-        if (i + 1) % 10 == 0 or i == 0:
-            print(f"  Progress: {i + 1}/{total} ({(i + 1) / total * 100:.1f}%)")
-
-        data = reader.get_json(file_info['key'])
-        if data:
-            frame = {
-                'time': file_info['time'],
+            frames.append({
+                'time': _to_taipei_iso(fr['observed_at']),
                 'stats': {
-                    'min': data.get('min_temp'),
-                    'max': data.get('max_temp'),
-                    'avg': data.get('avg_temp'),
-                    'valid_points': data.get('valid_points', 0)
+                    'min': round(min(valid), 1),
+                    'max': round(max(valid), 1),
+                    'avg': round(sum(valid) / len(valid), 1),
+                    'valid_points': len(valid),
                 },
-                'data': data.get('data', [])
-            }
+                'data': grid,
+            })
 
-            # Save geo_info from first frame
-            if not frames and data.get('geo_info'):
-                frame['geo_info'] = data['geo_info']
+        print(f"  {date}: {len(day_frames)} frames")
 
-            frames.append(frame)
+    # Sort by time and keep the most recent max_frames
+    frames.sort(key=lambda f: f['time'])
+    if len(frames) > max_frames:
+        print(f"  Limiting to latest {max_frames} frames")
+        frames = frames[-max_frames:]
 
-    print(f"Downloaded {len(frames)} valid frames")
+    print(f"Reconstructed {len(frames)} valid frames ({skipped} partial/empty skipped)")
     return frames
 
 
-def generate_timelapse_json(frames: List[Dict], output_path: Path) -> Dict:
-    """Generate timelapse JSON file"""
+def generate_timelapse_json(frames: list[dict], output_path: Path) -> dict:
+    """Generate the timelapse JSON file."""
     if not frames:
         return {}
 
-    # Get geo_info from first frame with it
-    geo_info = None
-    for frame in frames:
-        if 'geo_info' in frame:
-            geo_info = frame['geo_info']
-            break
-
-    if not geo_info:
-        geo_info = {
-            'bottom_left_lon': 118.0,
-            'bottom_left_lat': 21.0,
-            'top_right_lon': 123.0,
-            'top_right_lat': 26.0,
-            'resolution_deg': 0.03,
-            'resolution_km': 3.3
-        }
-
     timelapse_data = {
         'metadata': {
-            'generated_at': datetime.now().isoformat(),
+            'generated_at': datetime.now(TAIPEI_TZ).isoformat(),
             'start_time': frames[0]['time'],
             'end_time': frames[-1]['time'],
             'total_frames': len(frames),
-            'geo_info': geo_info,
-            'source': 'Central Weather Administration O-A0038-003',
-            'description': 'Taiwan Temperature Grid Timelapse'
+            'geo_info': GEO_INFO,
+            'source': 'Central Weather Administration O-A0038-003 (via gis-platform)',
+            'description': 'Taiwan Temperature Grid Timelapse',
         },
-        'frames': []
+        'frames': frames,
     }
 
-    # Process frames (remove geo_info from individual frames)
-    for frame in frames:
-        frame_data = {
-            'time': frame['time'],
-            'stats': frame['stats'],
-            'data': frame['data']
-        }
-        timelapse_data['frames'].append(frame_data)
-
-    # Save JSON
-    print(f"Saving timelapse data...")
+    print("Saving timelapse data...")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(timelapse_data, f, ensure_ascii=False)
 
     file_size_mb = output_path.stat().st_size / 1024 / 1024
     print(f"  Saved: {output_path.name} ({file_size_mb:.2f} MB)")
-
     return timelapse_data
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Update Taiwan Temperature Timelapse data'
-    )
-    parser.add_argument(
-        '--env-file',
-        type=Path,
-        help='Path to .env file (default: PROJECT_ROOT/.env)'
-    )
-    parser.add_argument(
-        '--days',
-        type=int,
-        help='Limit to recent N days'
-    )
-    parser.add_argument(
-        '--start-date',
-        help='Start date (YYYY-MM-DD)'
-    )
-    parser.add_argument(
-        '--end-date',
-        help='End date (YYYY-MM-DD)'
-    )
-    parser.add_argument(
-        '--max-frames',
-        type=int,
-        default=720,
-        help='Maximum number of frames (default: 720, ~30 days)'
-    )
-    parser.add_argument(
-        '--output',
-        type=Path,
-        default=OUTPUT_FILE,
-        help=f'Output file path (default: {OUTPUT_FILE})'
-    )
+    parser = argparse.ArgumentParser(description='Update Taiwan Temperature Timelapse data')
+    parser.add_argument('--env-file', type=Path, help='Path to .env file (default: PROJECT_ROOT/.env)')
+    parser.add_argument('--days', type=int, help='Limit to recent N days')
+    parser.add_argument('--start-date', help='Start date (YYYY-MM-DD)')
+    parser.add_argument('--end-date', help='End date (YYYY-MM-DD)')
+    parser.add_argument('--max-frames', type=int, default=720, help='Maximum number of frames (default: 720, ~30 days)')
+    parser.add_argument('--output', type=Path, default=OUTPUT_FILE, help=f'Output file path (default: {OUTPUT_FILE})')
     args = parser.parse_args()
 
     print("=" * 60)
-    print("Taiwan Temperature Timelapse - Data Update")
+    print("Taiwan Temperature Timelapse - Data Update (gis-platform)")
     print("=" * 60)
 
-    # Check boto3
-    if not HAS_BOTO3:
-        print("ERROR: boto3 is not installed")
-        print("  Run: pip install boto3")
+    # Load .env if credentials are not already in the environment (e.g. CI)
+    if not os.getenv('SUPABASE_URL'):
+        env_path = args.env_file or (PROJECT_ROOT / '.env')
+        if env_path.exists():
+            print(f"Loading env: {env_path}")
+            load_env_file(env_path)
+
+    base_url = os.getenv('SUPABASE_URL')
+    api_key = os.getenv('SUPABASE_KEY') or os.getenv('SUPABASE_ANON_KEY')
+
+    if not base_url or not api_key:
+        print("ERROR: SUPABASE_URL / SUPABASE_KEY not configured")
+        print("  Set them as environment variables or in the project .env file")
         sys.exit(1)
 
-    # Check if environment variables are already set (e.g., in CI)
-    s3_config = {
-        'S3_BUCKET': os.getenv('S3_BUCKET'),
-        'S3_ACCESS_KEY': os.getenv('S3_ACCESS_KEY'),
-        'S3_SECRET_KEY': os.getenv('S3_SECRET_KEY'),
-        'S3_REGION': os.getenv('S3_REGION', 'ap-northeast-1'),
-        'S3_ENDPOINT': os.getenv('S3_ENDPOINT'),
-    }
+    print(f"  Supabase URL: {base_url}")
 
-    # If not set, try loading from .env file
-    if not s3_config.get('S3_BUCKET'):
-        env_path = args.env_file
-        if not env_path:
-            possible_paths = [
-                PROJECT_ROOT / '.env',
-                Path.home() / '.env.weather_change',
-            ]
-            for p in possible_paths:
-                if p.exists():
-                    env_path = p
-                    break
-
-        if not env_path or not env_path.exists():
-            print("ERROR: No S3 credentials found")
-            print("  Set environment variables or create .env file")
-            sys.exit(1)
-
-        print(f"Loading env: {env_path}")
-        s3_config = load_env_file(env_path)
-    else:
-        print("Using environment variables")
-
-    if not s3_config.get('S3_BUCKET'):
-        print("ERROR: S3_BUCKET is not configured")
-        sys.exit(1)
-
-    print(f"  S3 Bucket: {s3_config['S3_BUCKET']}")
-    print(f"  S3 Region: {s3_config.get('S3_REGION', 'ap-northeast-1')}")
-
-    # Calculate date range
     start_date = args.start_date
     end_date = args.end_date
-
     if args.days:
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
+        end_date = datetime.now(TAIPEI_TZ).strftime('%Y-%m-%d')
+        start_date = (datetime.now(TAIPEI_TZ) - timedelta(days=args.days)).strftime('%Y-%m-%d')
         print(f"  Limiting to last {args.days} days")
 
-    # Initialize S3 reader
     try:
-        reader = S3TemperatureReader(s3_config)
+        reader = GisPlatformReader(base_url, api_key)
+        frames = download_temperature_data(
+            reader,
+            start_date=start_date,
+            end_date=end_date,
+            max_frames=args.max_frames,
+        )
     except Exception as e:
-        print(f"ERROR: Cannot connect to S3: {e}")
+        print(f"ERROR: {e}")
         sys.exit(1)
-
-    # Download data
-    frames = download_temperature_data(
-        reader,
-        start_date=start_date,
-        end_date=end_date,
-        max_frames=args.max_frames
-    )
 
     if not frames:
         print("ERROR: No temperature data available")
         sys.exit(1)
 
-    # Generate JSON
     timelapse_data = generate_timelapse_json(frames, args.output)
 
-    # Summary
     print()
     print("=" * 60)
     print("Update Complete")
     print("=" * 60)
-    print(f"  Time range: {timelapse_data['metadata']['start_time'][:10]} ~ {timelapse_data['metadata']['end_time'][:10]}")
+    print(f"  Time range: {timelapse_data['metadata']['start_time'][:16]} ~ {timelapse_data['metadata']['end_time'][:16]}")
     print(f"  Total frames: {timelapse_data['metadata']['total_frames']}")
     print(f"  Output: {args.output}")
 

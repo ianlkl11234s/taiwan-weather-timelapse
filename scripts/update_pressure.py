@@ -2,7 +2,8 @@
 """
 Taiwan Sea-Level Pressure (SLP) Timelapse - Data Update Script
 
-Downloads weather station data from S3, converts station pressure to sea-level pressure
+Downloads weather station data from the gis-platform Supabase (PostgREST) view
+`public.weather_observations`, converts station pressure to sea-level pressure
 using barometric formula, then interpolates SLP using scipy griddata.
 
 Usage:
@@ -21,8 +22,11 @@ import argparse
 import math
 import os
 import sys
+import urllib.parse
+import urllib.request
+import urllib.error
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
 
 # Try to load dotenv
@@ -120,109 +124,212 @@ def load_env_file(env_path: Path) -> Dict[str, str]:
                         os.environ[key.strip()] = value.strip().strip('"\'')
 
     return {
-        'S3_BUCKET': os.getenv('S3_BUCKET'),
-        'S3_ACCESS_KEY': os.getenv('S3_ACCESS_KEY'),
-        'S3_SECRET_KEY': os.getenv('S3_SECRET_KEY'),
-        'S3_REGION': os.getenv('S3_REGION', 'ap-northeast-1'),
-        'S3_ENDPOINT': os.getenv('S3_ENDPOINT'),
+        'SUPABASE_URL': os.getenv('SUPABASE_URL'),
+        'SUPABASE_KEY': os.getenv('SUPABASE_KEY') or os.getenv('SUPABASE_ANON_KEY'),
     }
 
 
-class S3WeatherReader:
-    """S3 Weather Station Data Reader"""
+# Taipei timezone (UTC+8)
+TAIPEI_TZ = timezone(timedelta(hours=8))
 
-    def __init__(self, config: Dict[str, str]):
-        if not HAS_BOTO3:
-            raise ImportError("boto3 is required. Install with: pip install boto3")
 
-        if not config.get('S3_BUCKET'):
-            raise ValueError("S3_BUCKET is not configured")
+class GisWeatherReader:
+    """
+    gis-platform Supabase (PostgREST) Weather Station Data Reader.
 
-        client_kwargs = {
-            'region_name': config.get('S3_REGION', 'ap-northeast-1'),
+    Reads from the `public.weather_observations` view via anonymous PostgREST.
+    Station latitude/longitude/altitude are joined locally from
+    `public/stations.json` (the view has no altitude column).
+    """
+
+    # SLP 換算需要 pressure + temperature；altitude 來自 stations.json
+    SELECT_FIELDS = 'station_id,observed_at,pressure,temperature'
+
+    def __init__(self, base_url: str, api_key: str):
+        if not base_url:
+            raise ValueError("SUPABASE_URL is not configured")
+        if not api_key:
+            raise ValueError("SUPABASE_KEY is not configured")
+
+        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
+        self.station_meta = self._load_station_meta()
+
+        if not self.station_meta:
+            raise ValueError("No station metadata loaded from stations.json")
+
+    def _load_station_meta(self) -> Dict[str, Dict[str, float]]:
+        """
+        載入 public/stations.json，建立 station_id -> 中繼資料 對照表。
+        注意 JSON 是 lat/lon，這裡轉成 interpolate 需要的 latitude/longitude key。
+        """
+        stations_path = PUBLIC_DIR / 'stations.json'
+        with open(stations_path, 'r', encoding='utf-8') as f:
+            raw = json.load(f)
+
+        # stations.json 可能是 list，也可能是 {"count":..., "stations":[...]}
+        stations = raw['stations'] if isinstance(raw, dict) else raw
+
+        meta = {}
+        for s in stations:
+            sid = s.get('id')
+            if not sid:
+                continue
+            meta[sid] = {
+                'latitude': s.get('lat'),
+                'longitude': s.get('lon'),
+                'altitude': s.get('altitude'),
+            }
+        return meta
+
+    def _request(self, path: str, extra_headers: Optional[Dict[str, str]] = None) -> Tuple[Any, Dict[str, str]]:
+        """送出 PostgREST GET 請求，回傳 (json, response_headers)"""
+        url = f"{self.base_url}/rest/v1/{path}"
+        headers = {
+            'apikey': self.api_key,
+            'Authorization': f"Bearer {self.api_key}",
+            'Accept': 'application/json',
         }
+        if extra_headers:
+            headers.update(extra_headers)
 
-        if config.get('S3_ACCESS_KEY') and config.get('S3_SECRET_KEY'):
-            client_kwargs['aws_access_key_id'] = config['S3_ACCESS_KEY']
-            client_kwargs['aws_secret_access_key'] = config['S3_SECRET_KEY']
-
-        if config.get('S3_ENDPOINT'):
-            client_kwargs['endpoint_url'] = config['S3_ENDPOINT']
-
-        self.s3 = boto3.client('s3', **client_kwargs)
-        self.bucket = config['S3_BUCKET']
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            content = resp.read().decode('utf-8')
+            resp_headers = {k.lower(): v for k, v in resp.headers.items()}
+            return json.loads(content), resp_headers
 
     def list_dates(self) -> List[str]:
-        """List all dates with weather data"""
-        dates = set()
-        prefix = "weather/"
-        paginator = self.s3.get_paginator('list_objects_v2')
-
+        """
+        從 weather_observations 取得時間範圍 (observed_at, UTC)，
+        轉成台北日期清單回傳。
+        """
         try:
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix, Delimiter='/'):
-                for cp in page.get('CommonPrefixes', []):
-                    year_prefix = cp['Prefix']
-                    for month_page in paginator.paginate(Bucket=self.bucket, Prefix=year_prefix, Delimiter='/'):
-                        for month_cp in month_page.get('CommonPrefixes', []):
-                            month_prefix = month_cp['Prefix']
-                            for day_page in paginator.paginate(Bucket=self.bucket, Prefix=month_prefix, Delimiter='/'):
-                                for day_cp in day_page.get('CommonPrefixes', []):
-                                    parts = day_cp['Prefix'].rstrip('/').split('/')
-                                    if len(parts) >= 4:
-                                        date_str = f"{parts[1]}-{parts[2]}-{parts[3]}"
-                                        dates.add(date_str)
-        except ClientError as e:
-            print(f"Error listing S3 data: {e}")
+            newest, _ = self._request(
+                'weather_observations?select=observed_at&order=observed_at.desc&limit=1'
+            )
+            oldest, _ = self._request(
+                'weather_observations?select=observed_at&order=observed_at.asc&limit=1'
+            )
+        except urllib.error.URLError as e:
+            print(f"Error querying observation range: {e}")
             return []
 
-        return sorted(dates)
+        if not newest or not oldest:
+            return []
+
+        end_date = self._utc_to_taipei(newest[0]['observed_at']).date()
+        start_date = self._utc_to_taipei(oldest[0]['observed_at']).date()
+
+        dates = []
+        d = start_date
+        while d <= end_date:
+            dates.append(d.strftime('%Y-%m-%d'))
+            d += timedelta(days=1)
+        return dates
 
     def list_files_by_date(self, date: str) -> List[Dict[str, Any]]:
-        """List all weather files for a specific date"""
+        """
+        抓取指定台北日期內的所有觀測，依 observed_at 分組成多個 frame。
+        回傳每個 frame 的 {'time': <ISO+08:00>, 'stations': [...]}，
+        其中 stations 已補上 latitude/longitude/altitude，可直接餵給 interpolate。
+        """
         try:
-            parsed_date = datetime.strptime(date, '%Y-%m-%d')
-            prefix = f"weather/{parsed_date.strftime('%Y/%m/%d')}/"
+            day_start = datetime.strptime(date, '%Y-%m-%d').replace(tzinfo=TAIPEI_TZ)
         except ValueError:
             return []
+        day_end = day_start + timedelta(days=1)
 
-        files = []
-        paginator = self.s3.get_paginator('list_objects_v2')
+        start_str = urllib.parse.quote(day_start.isoformat(), safe='')
+        end_str = urllib.parse.quote(day_end.isoformat(), safe='')
 
-        try:
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
-                for obj in page.get('Contents', []):
-                    key = obj['Key']
-                    if key.endswith('.json') and 'latest' not in key:
-                        filename = key.split('/')[-1]
-                        if filename.startswith('weather_'):
-                            time_str = filename.replace('weather_', '').replace('.json', '')
-                            if len(time_str) == 4:
-                                hour = time_str[:2]
-                                minute = time_str[2:]
-                                files.append({
-                                    'key': key,
-                                    'time': f"{date}T{hour}:{minute}:00+08:00",
-                                    'size': obj['Size']
-                                })
-        except ClientError as e:
-            print(f"Error listing files for {date}: {e}")
+        path = (
+            f"weather_observations?select={self.SELECT_FIELDS}"
+            f"&observed_at=gte.{start_str}&observed_at=lt.{end_str}"
+            f"&order=observed_at"
+        )
 
-        return sorted(files, key=lambda x: x['time'])
+        rows = self._fetch_all(path)
+        if not rows:
+            return []
 
-    def get_json(self, s3_key: str) -> Optional[Dict]:
-        """Read JSON file from S3"""
-        try:
-            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
-            content = response['Body'].read().decode('utf-8')
-            return json.loads(content)
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
-                return None
-            print(f"Error reading {s3_key}: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            print(f"JSON parse error for {s3_key}: {e}")
-            return None
+        # 依 observed_at 分組；組內每個 station_id 去重（保留第一筆）
+        groups: Dict[str, Dict[str, Any]] = {}
+        order: List[str] = []
+        for row in rows:
+            observed_at = row.get('observed_at')
+            if observed_at is None:
+                continue
+            if observed_at not in groups:
+                groups[observed_at] = {}
+                order.append(observed_at)
+
+            sid = row.get('station_id')
+            if sid is None or sid in groups[observed_at]:
+                continue
+
+            meta = self.station_meta.get(sid)
+            if meta is None:
+                # station_id 不在 stations.json，跳過
+                continue
+
+            station = dict(meta)
+            station['pressure'] = row.get('pressure')
+            station['temperature'] = row.get('temperature')
+            groups[observed_at][sid] = station
+
+        frames = []
+        for observed_at in order:
+            stations = list(groups[observed_at].values())
+            if not stations:
+                continue
+            frame_time = self._utc_to_taipei(observed_at).isoformat()
+            frames.append({'time': frame_time, 'stations': stations})
+
+        return sorted(frames, key=lambda x: x['time'])
+
+    def _fetch_all(self, path: str, page_size: int = 10000) -> List[Dict]:
+        """處理 PostgREST 分頁：用 Range header 持續抓到取完"""
+        results: List[Dict] = []
+        offset = 0
+        while True:
+            range_header = {'Range': f"{offset}-{offset + page_size - 1}"}
+            try:
+                rows, headers = self._request(path, extra_headers=range_header)
+            except urllib.error.URLError as e:
+                print(f"Error fetching page (offset={offset}): {e}")
+                break
+
+            if not rows:
+                break
+
+            results.extend(rows)
+
+            # Content-Range 格式: start-end/total
+            content_range = headers.get('content-range', '')
+            total = None
+            if '/' in content_range:
+                total_part = content_range.split('/')[-1]
+                if total_part.isdigit():
+                    total = int(total_part)
+
+            offset += len(rows)
+            if total is not None and offset >= total:
+                break
+            if len(rows) < page_size:
+                break
+
+        return results
+
+    @staticmethod
+    def _utc_to_taipei(observed_at: str) -> datetime:
+        """將 observed_at (UTC ISO 字串) 轉為台北時區 datetime"""
+        # PostgREST 可能回傳 'Z' 或 '+00:00'
+        ts = observed_at.replace('Z', '+00:00')
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(TAIPEI_TZ)
 
 
 def load_land_mask() -> Optional[np.ndarray]:
@@ -375,7 +482,7 @@ def interpolate_pressure(stations: List[Dict], geo_info: Dict) -> Tuple[List[Lis
 
 
 def download_and_interpolate_pressure(
-    reader: S3WeatherReader,
+    reader: GisWeatherReader,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     max_frames: int = 720
@@ -402,41 +509,42 @@ def download_and_interpolate_pressure(
 
     print(f"  Processing {len(all_dates)} dates")
 
-    # Collect all files
-    all_files = []
+    # Collect all observation frames (one per observed_at)
+    all_obs = []
     for date in all_dates:
-        files = reader.list_files_by_date(date)
-        all_files.extend(files)
+        obs = reader.list_files_by_date(date)
+        all_obs.extend(obs)
 
-    print(f"  Total {len(all_files)} weather files")
+    # 依時間排序所有 frames
+    all_obs.sort(key=lambda x: x['time'])
 
-    # Limit frames
-    if len(all_files) > max_frames:
+    print(f"  Total {len(all_obs)} weather frames")
+
+    # Limit frames (保留最新 max_frames 個)
+    if len(all_obs) > max_frames:
         print(f"  Limiting to latest {max_frames} frames")
-        all_files = all_files[-max_frames:]
+        all_obs = all_obs[-max_frames:]
 
-    # Download and interpolate
+    # Interpolate
     frames = []
-    total = len(all_files)
+    total = len(all_obs)
 
-    print(f"Downloading and interpolating pressure data ({total} files)...")
+    print(f"Interpolating pressure data ({total} frames)...")
 
-    for i, file_info in enumerate(all_files):
+    for i, obs in enumerate(all_obs):
         if (i + 1) % 10 == 0 or i == 0:
             print(f"  Progress: {i + 1}/{total} ({(i + 1) / total * 100:.1f}%)")
 
-        data = reader.get_json(file_info['key'])
-        if data and 'data' in data:
-            stations = data['data']
-            grid_data, stats = interpolate_pressure(stations, GEO_INFO)
+        stations = obs['stations']
+        grid_data, stats = interpolate_pressure(stations, GEO_INFO)
 
-            if grid_data:
-                frame = {
-                    'time': file_info['time'],
-                    'stats': stats,
-                    'data': grid_data
-                }
-                frames.append(frame)
+        if grid_data:
+            frame = {
+                'time': obs['time'],
+                'stats': stats,
+                'data': grid_data
+            }
+            frames.append(frame)
 
     print(f"Processed {len(frames)} valid frames")
     return frames
@@ -517,27 +625,17 @@ def main():
     print("=" * 60)
 
     # Check dependencies
-    if not HAS_BOTO3:
-        print("ERROR: boto3 is not installed")
-        print("  Run: pip install boto3")
-        sys.exit(1)
-
     if not HAS_SCIPY:
         print("ERROR: scipy/numpy is not installed")
         print("  Run: pip install scipy numpy")
         sys.exit(1)
 
     # Check if environment variables are already set (e.g., in CI)
-    s3_config = {
-        'S3_BUCKET': os.getenv('S3_BUCKET'),
-        'S3_ACCESS_KEY': os.getenv('S3_ACCESS_KEY'),
-        'S3_SECRET_KEY': os.getenv('S3_SECRET_KEY'),
-        'S3_REGION': os.getenv('S3_REGION', 'ap-northeast-1'),
-        'S3_ENDPOINT': os.getenv('S3_ENDPOINT'),
-    }
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_KEY') or os.getenv('SUPABASE_ANON_KEY')
 
     # If not set, try loading from .env file
-    if not s3_config.get('S3_BUCKET'):
+    if not (supabase_url and supabase_key):
         env_path = args.env_file
         if not env_path:
             possible_paths = [
@@ -549,37 +647,36 @@ def main():
                     env_path = p
                     break
 
-        if not env_path or not env_path.exists():
-            print("ERROR: No S3 credentials found")
-            print("  Set environment variables or create .env file")
-            sys.exit(1)
-
-        print(f"Loading env: {env_path}")
-        s3_config = load_env_file(env_path)
+        if env_path and env_path.exists():
+            print(f"Loading env: {env_path}")
+            config = load_env_file(env_path)
+            supabase_url = supabase_url or config.get('SUPABASE_URL')
+            supabase_key = supabase_key or config.get('SUPABASE_KEY')
     else:
         print("Using environment variables")
 
-    if not s3_config.get('S3_BUCKET'):
-        print("ERROR: S3_BUCKET is not configured")
+    if not supabase_url or not supabase_key:
+        print("ERROR: SUPABASE_URL / SUPABASE_KEY are not configured")
+        print("  Set environment variables or create .env file")
         sys.exit(1)
 
-    print(f"  S3 Bucket: {s3_config['S3_BUCKET']}")
-    print(f"  S3 Region: {s3_config.get('S3_REGION', 'ap-northeast-1')}")
+    print(f"  Supabase URL: {supabase_url}")
 
     # Calculate date range
     start_date = args.start_date
     end_date = args.end_date
 
     if args.days:
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
+        now_taipei = datetime.now(TAIPEI_TZ)
+        end_date = now_taipei.strftime('%Y-%m-%d')
+        start_date = (now_taipei - timedelta(days=args.days)).strftime('%Y-%m-%d')
         print(f"  Limiting to last {args.days} days")
 
-    # Initialize S3 reader
+    # Initialize Supabase reader
     try:
-        reader = S3WeatherReader(s3_config)
+        reader = GisWeatherReader(supabase_url, supabase_key)
     except Exception as e:
-        print(f"ERROR: Cannot connect to S3: {e}")
+        print(f"ERROR: Cannot initialize Supabase reader: {e}")
         sys.exit(1)
 
     # Download and interpolate
