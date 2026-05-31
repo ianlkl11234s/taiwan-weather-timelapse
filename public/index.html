@@ -441,7 +441,7 @@
         }
 
         .legend h4 { margin-bottom: 8px; font-size: 13px; }
-        .legend-item { display: flex; align-items: center; margin: 4px 0; font-size: 12px; }
+        .legend-item { display: flex; align-items: center; margin: 3px 0; font-size: 12px; }
         .legend-color {
             width: 20px;
             height: 14px;
@@ -654,7 +654,9 @@
                 <div class="legend-item"><div class="legend-color" style="background:#74add1"></div>5-10°</div>
                 <div class="legend-item"><div class="legend-color" style="background:#fee090"></div>15-18°</div>
                 <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div>20-25°</div>
-                <div class="legend-item"><div class="legend-color" style="background:#d73027"></div>&gt;25°</div>
+                <div class="legend-item"><div class="legend-color" style="background:#d73027"></div>25-28°</div>
+                <div class="legend-item"><div class="legend-color" style="background:#b2182b"></div>28-31°</div>
+                <div class="legend-item"><div class="legend-color" style="background:#800026"></div>&gt;31°</div>
             </div>
         </div>
         <div class="map-wrapper">
@@ -800,7 +802,10 @@
             <div class="legend-item"><div class="legend-color" style="background:#fee090"></div> 15 ~ 18&#176;C</div>
             <div class="legend-item"><div class="legend-color" style="background:#fdae61"></div> 18 ~ 20&#176;C</div>
             <div class="legend-item"><div class="legend-color" style="background:#f46d43"></div> 20 ~ 25&#176;C</div>
-            <div class="legend-item"><div class="legend-color" style="background:#d73027"></div> &gt; 25&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#d73027"></div> 25 ~ 28&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#b2182b"></div> 28 ~ 31&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#800026"></div> 31 ~ 34&#176;C</div>
+            <div class="legend-item"><div class="legend-color" style="background:#4d0019"></div> &gt; 34&#176;C</div>
         </div>
         <div id="legend-humidity" style="display:none;">
             <h4>Humidity (%)</h4>
@@ -878,7 +883,10 @@
             if (temp < 18) return '#fee090';
             if (temp < 20) return '#fdae61';
             if (temp < 25) return '#f46d43';
-            return '#d73027';
+            if (temp < 28) return '#d73027';
+            if (temp < 31) return '#b2182b';
+            if (temp < 34) return '#800026';
+            return '#4d0019';
         }
 
         // Humidity color function (Windy style)
