@@ -138,22 +138,23 @@ taiwan-weather-timelapse/
 - **Python**：資料擷取與處理
 - **scipy**：空間內插（griddata）
 - **numpy**：數值運算
-- **boto3**：AWS S3 資料存取
 
 ### 資料流程
 ```
-氣象開放資料平台 (每小時)
+gis-platform Supabase (PostgREST)
         ↓
-   定時排程抓取
-        ↓
-     AWS S3 儲存
-        ↓
-  GitHub Actions (每日)
+  GitHub Actions (每日，使用 SUPABASE_URL / SUPABASE_KEY)
    ├── 溫度：直接使用網格資料
    ├── 濕度：測站資料 → 空間內插
    └── 氣壓：測站資料 → SLP 換算 → 空間內插
         ↓
-   GitHub Pages 部署
+   產生 public/*.json
+        ↓
+   GitHub Actions 檢查變更
+        ↓
+   github-actions commit + push
+        ↓
+   靜態展示站更新
 ```
 
 ### 底圖
@@ -178,7 +179,7 @@ taiwan-weather-timelapse/
 
 3. 開啟瀏覽器 http://localhost:8000
 
-> **注意**：資料更新功能需要 S3 存取權限，目前僅限維護者執行。
+> **注意**：資料更新功能需要 `SUPABASE_URL` 與 `SUPABASE_KEY`，目前僅限維護者執行。
 
 ## 授權
 
