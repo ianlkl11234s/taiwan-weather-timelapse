@@ -35,14 +35,6 @@ try:
 except ImportError:
     HAS_DOTENV = False
 
-# Try to load boto3
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-    HAS_BOTO3 = True
-except ImportError:
-    HAS_BOTO3 = False
-
 # Try to load scipy and numpy
 try:
     import numpy as np
